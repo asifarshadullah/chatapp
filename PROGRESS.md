@@ -2,23 +2,23 @@
 
 ## Current iteration: 1 — Backend Skeleton + Echo Endpoint
 
-### Phase 1: Scaffolding
-- [ ] Create `backend/Directory.Build.props` (shared project settings)
-- [ ] Create `backend/ChatApp.sln` with 7 projects (4 src + 3 test)
-- [ ] Set up project references (Clean Architecture dependency flow)
-- [ ] Add `InternalsVisibleTo` in Chat.Api for integration tests
-- [ ] Verify: `dotnet build backend/ChatApp.sln` passes with zero warnings
+### Phase 1: Scaffolding ✅
+- [x] Create `backend/Directory.Build.props` (shared project settings)
+- [x] Create `backend/ChatApp.sln` with 7 projects (4 src + 3 test)
+- [x] Set up project references (Clean Architecture dependency flow)
+- [x] Add `public partial class Program` in Chat.Api for integration tests
+- [x] Verify: `dotnet build backend/ChatApp.sln` passes with zero warnings
 
-### Phase 2: Echo Endpoint (TDD)
-- [ ] RED: Write integration test — POST /api/chat returns echo response
-- [ ] RED: Write unit test — ChatService.SendMessageAsync returns echo
-- [ ] RED: Write domain test — ChatMessage entity validation
-- [ ] GREEN: Implement ChatMessage domain entity
-- [ ] GREEN: Implement ChatService in Application layer
-- [ ] GREEN: Implement ChatController
-- [ ] Wire up DI in Program.cs + CORS for localhost:5173
-- [ ] REFACTOR: Review and clean up
-- [ ] Verify: All tests pass, endpoint works via Swagger/curl
+### Phase 2: Echo Endpoint (TDD) ✅
+- [x] RED: Write integration tests — POST /api/chat (4 tests)
+- [x] RED: Write unit tests — ChatService.SendMessageAsync (4 tests)
+- [x] RED: Write domain tests — ChatMessage entity validation (8 tests)
+- [x] GREEN: Implement ChatMessage domain entity + MessageRole enum
+- [x] GREEN: Implement Application layer (DTOs, IChatService, ChatService)
+- [x] GREEN: Implement ChatController
+- [x] Wire up DI in Program.cs + CORS for localhost:5173
+- [x] REFACTOR: Review and clean up
+- [x] Verify: 16 tests passing, zero warnings, zero errors
 - [ ] Commit and tag: `git tag iteration-1`
 
 ---
