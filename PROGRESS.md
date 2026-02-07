@@ -19,7 +19,7 @@
 - [x] Wire up DI in Program.cs + CORS for localhost:5173
 - [x] REFACTOR: Review and clean up
 - [x] Verify: 16 tests passing, zero warnings, zero errors
-- [ ] Commit and tag: `git tag iteration-1`
+- [x] Commit and tag: `git tag iteration-1` (commit 73145d1)
 
 ---
 
