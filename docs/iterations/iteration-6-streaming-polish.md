@@ -24,19 +24,18 @@ Add to `Chat.Api.csproj`:
 ```
 (SignalR is included in `Microsoft.AspNetCore.App` shared framework, so explicit package may not be needed.)
 
-### Task 1.2: RED — Write hub integration tests
+### ChatHub cycles (TDD — vertical slices)
 **File:** `backend/tests/Chat.Api.Tests/Hubs/ChatHubTests.cs`
 
-```
-Test: SendMessage_StreamsEchoResponseWordByWord
-Test: SendMessage_StoresMessagesInConversation
-Test: SendMessage_WithNewConversation_ReturnsConversationId
-Test: SendMessage_WithInvalidContent_SendsErrorMessage
-```
+Use `HubConnectionBuilder` in tests pointing to the test server. One test → minimal impl → next test:
 
-Use `HubConnectionBuilder` in tests pointing to the test server.
+- Cycle 1.2: RED `SendMessage_StreamsEchoResponseWordByWord` → GREEN scaffold `ChatHub` with `IAsyncEnumerable<string>`, yield words with delay
+- Cycle 1.3: RED `SendMessage_StoresMessagesInConversation` → GREEN inject `IChatService`, store messages
+- Cycle 1.4: RED `SendMessage_WithNewConversation_ReturnsConversationId` → GREEN emit conversationId via client callback
+- Cycle 1.5: RED `SendMessage_WithInvalidContent_SendsErrorMessage` → GREEN validate message, send error to caller
+- Refactor
 
-### Task 1.3: GREEN — Implement ChatHub
+### Task 1.3 — Implement ChatHub (note)
 **File:** `backend/src/Chat.Api/Hubs/ChatHub.cs`
 
 ```csharp

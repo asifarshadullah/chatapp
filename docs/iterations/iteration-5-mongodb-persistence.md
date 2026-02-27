@@ -84,25 +84,21 @@ Add to `Chat.Infrastructure.csproj`:
 <PackageReference Include="MongoDB.Driver" Version="2.*" />
 ```
 
-### Task 2.2: RED — Write repository integration tests
+### MongoDB repository cycles (TDD — vertical slices)
 **File:** `backend/tests/Chat.Infrastructure.Tests/Repositories/MongoChatRepositoryTests.cs`
 
-These tests run against a real MongoDB instance (from Docker Compose).
-Use a unique database name per test run to avoid conflicts.
+Tests run against real MongoDB (Docker Compose). Use `IClassFixture` with a unique db name per run (`chatapp_test_{Guid}`); drop it in `Dispose()`.
 
-```
-Test: CreateConversationAsync_StoresConversationInDatabase
-Test: GetConversationAsync_WithValidId_ReturnsStoredConversation
-Test: GetConversationAsync_WithInvalidId_ReturnsNull
-Test: AddMessageAsync_PersistsMessageToDatabase
-Test: GetMessagesAsync_ReturnsAllStoredMessages
-Test: GetMessagesAsync_ReturnsMessagesInChronologicalOrder
-Test: Conversation_PersistsAcrossRepositoryInstances (proves it's not in-memory)
-```
+One test → minimal impl → next test:
 
-**Test setup:** Use `IClassFixture` or a base class that:
-- Creates a test database with a unique name (`chatapp_test_{Guid}`)
-- Drops the test database in `Dispose()`
+- Cycle 2.2: RED `CreateConversationAsync_StoresConversationInDatabase` → GREEN scaffold `MongoChatRepository` + document models + insert
+- Cycle 2.3: RED `GetConversationAsync_WithValidId_ReturnsStoredConversation` → GREEN find by id, map to domain
+- Cycle 2.4: RED `GetConversationAsync_WithInvalidId_ReturnsNull` → GREEN return null on miss
+- Cycle 2.5: RED `AddMessageAsync_PersistsMessageToDatabase` → GREEN push message to document
+- Cycle 2.6: RED `GetMessagesAsync_ReturnsAllStoredMessages` → GREEN return mapped messages
+- Cycle 2.7: RED `GetMessagesAsync_ReturnsMessagesInChronologicalOrder` → GREEN sort by timestamp
+- Cycle 2.8: RED `Conversation_PersistsAcrossRepositoryInstances` → GREEN proves real DB (should pass if above implemented correctly)
+- Refactor
 
 ### Task 2.3: Create MongoDB document models
 **File:** `backend/src/Chat.Infrastructure/Data/Documents/ConversationDocument.cs`

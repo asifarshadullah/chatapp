@@ -32,11 +32,12 @@ Chat.Api            → Controllers, DI root, middleware. References Application
 - No static mutable state — use dependency injection
 
 ## Testing standards
-- **TDD:** Write failing test FIRST, then implement to make it pass
+- **TDD — vertical slices only:** One test → one implementation → repeat. Never write all tests first then all code (horizontal slicing produces tests against imagined behavior).
 - **Framework:** xUnit + FluentAssertions
 - **Pattern:** Arrange-Act-Assert
 - **Naming:** `MethodName_Scenario_ExpectedResult`
 - **Integration tests:** Use `WebApplicationFactory<Program>`
+- Tests verify behavior through public interfaces only — never implementation details, private methods, or internal collaborators
 - Run ALL tests after every change — never leave tests broken
 
 ## Verification commands
@@ -59,6 +60,10 @@ cd e2e/playwright && npx playwright test            # E2E tests
 6. Update `PROGRESS.md` when completing tasks
 7. Do NOT add libraries without explaining why
 8. Do NOT skip ahead to future iterations
+
+## Plan mode
+- Plans must be extremely concise — sacrifice grammar for concision
+- End every plan with a list of unresolved questions (if any)
 
 ## Current iteration
 **Iteration 1: Backend Skeleton + Echo Endpoint**

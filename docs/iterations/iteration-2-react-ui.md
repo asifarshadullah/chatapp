@@ -93,96 +93,87 @@ export interface ChatResponse {
 
 ---
 
-## Phase 3: API Client (TDD)
+## Phase 3: API Client (TDD — vertical slices)
 
-### Task 3.1: Write tests for API client
-**File:** `frontend/chat-ui/src/services/__tests__/chatApi.test.ts`
-
-```
-Test: sendMessage sends POST request with correct body
-Test: sendMessage returns parsed ChatResponse on success
-Test: sendMessage throws error on non-ok response
-Test: sendMessage throws error on network failure
-```
-
-Use `vi.fn()` to mock `fetch`.
-
-### Task 3.2: Implement API client
 **File:** `frontend/chat-ui/src/services/chatApi.ts`
+**Test file:** `frontend/chat-ui/src/services/__tests__/chatApi.test.ts`
 
-```typescript
-const API_BASE = '/api';
+Use `vi.fn()` to mock `fetch`. One test → minimal impl → next test.
 
-export async function sendMessage(message: string): Promise<ChatResponse> {
-  const response = await fetch(`${API_BASE}/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  });
+### Cycle 3.1 — POST body
+- RED: test `sendMessage sends POST request with correct body`
+- GREEN: implement `sendMessage` — bare `fetch` POST with JSON body, no response handling yet
 
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
-  }
+### Cycle 3.2 — Success response
+- RED: test `sendMessage returns parsed ChatResponse on success`
+- GREEN: add `response.json()` and return typed result
 
-  return response.json();
-}
-```
+### Cycle 3.3 — HTTP error
+- RED: test `sendMessage throws error on non-ok response`
+- GREEN: add `if (!response.ok) throw new Error(...)`
+
+### Cycle 3.4 — Network failure
+- RED: test `sendMessage throws error on network failure`
+- GREEN: network errors propagate naturally — confirm test passes as-is or add try/catch if needed
+
+### Refactor
+Review `sendMessage` — extract `API_BASE` constant, verify types align with `ChatResponse`.
 
 ---
 
-## Phase 4: Components (TDD)
+## Phase 4: Components (TDD — vertical slices)
+
+Each component: write ONE failing test → write minimal code to pass → next test → repeat.
+Only write the next test after the current one is GREEN.
 
 ### Task 4.1: MessageBubble component
 **File:** `frontend/chat-ui/src/components/MessageBubble.tsx`
 **Test:** `frontend/chat-ui/src/components/__tests__/MessageBubble.test.tsx`
 
-Tests:
-- Renders message content
-- Applies 'user' styling for user messages
-- Applies 'assistant' styling for assistant messages
-
 Props: `{ message: ChatMessage }`
+
+- Cycle 1: RED test "renders message content" → GREEN render `message.message` text
+- Cycle 2: RED test "applies user styling for user role" → GREEN add role-based className
+- Cycle 3: RED test "applies assistant styling for assistant role" → GREEN same className logic covers it
+- Refactor
 
 ### Task 4.2: MessageList component
 **File:** `frontend/chat-ui/src/components/MessageList.tsx`
 **Test:** `frontend/chat-ui/src/components/__tests__/MessageList.test.tsx`
 
-Tests:
-- Renders empty state when no messages
-- Renders all messages in order
-- Scrolls to bottom when new messages added
-
 Props: `{ messages: ChatMessage[] }`
+
+- Cycle 1: RED test "renders empty state when no messages" → GREEN render empty container
+- Cycle 2: RED test "renders all messages in order" → GREEN map messages to MessageBubble
+- Cycle 3: RED test "scrolls to bottom when new messages added" → GREEN add `useEffect` + `scrollIntoView`
+- Refactor
 
 ### Task 4.3: ChatInput component
 **File:** `frontend/chat-ui/src/components/ChatInput.tsx`
 **Test:** `frontend/chat-ui/src/components/__tests__/ChatInput.test.tsx`
 
-Tests:
-- Renders textarea and send button
-- Calls onSend with message content when button clicked
-- Calls onSend when Enter pressed (without Shift)
-- Clears input after sending
-- Disables send button when input is empty
-- Disables input and button when `isLoading` is true
-
 Props: `{ onSend: (message: string) => void; isLoading: boolean }`
+
+- Cycle 1: RED test "renders textarea and send button" → GREEN render basic markup
+- Cycle 2: RED test "calls onSend with message content when button clicked" → GREEN add `onClick` handler
+- Cycle 3: RED test "calls onSend when Enter pressed (without Shift)" → GREEN add `onKeyDown` handler
+- Cycle 4: RED test "clears input after sending" → GREEN reset state after calling `onSend`
+- Cycle 5: RED test "disables send button when input is empty" → GREEN `disabled={!value.trim()}`
+- Cycle 6: RED test "disables input and button when isLoading is true" → GREEN `disabled={isLoading}`
+- Refactor
 
 ### Task 4.4: ChatWindow component (main container)
 **File:** `frontend/chat-ui/src/components/ChatWindow.tsx`
 **Test:** `frontend/chat-ui/src/components/__tests__/ChatWindow.test.tsx`
 
-Tests:
-- Renders ChatInput and MessageList
-- Adds user message to list on send
-- Calls API and adds assistant response to list
-- Shows loading state while waiting for API response
-- Shows error message on API failure
+State: `messages: ChatMessage[]`, `isLoading: boolean`, `error: string | null`
 
-This component manages state:
-- `messages: ChatMessage[]`
-- `isLoading: boolean`
-- `error: string | null`
+- Cycle 1: RED test "renders ChatInput and MessageList" → GREEN compose the two components
+- Cycle 2: RED test "adds user message to list on send" → GREEN append user message to state
+- Cycle 3: RED test "calls API and adds assistant response to list" → GREEN call `sendMessage`, append response
+- Cycle 4: RED test "shows loading state while waiting for API response" → GREEN set `isLoading` around API call
+- Cycle 5: RED test "shows error message on API failure" → GREEN catch error, set `error` state
+- Refactor
 
 ---
 

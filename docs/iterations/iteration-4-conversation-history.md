@@ -22,43 +22,36 @@ This iteration adds the concept of a Conversation that tracks all messages excha
 
 ---
 
-## Phase 1: Backend — Domain + Repository (TDD)
+## Phase 1: Backend — Domain + Repository (TDD — vertical slices)
 
-### Task 1.1: RED — Write domain entity tests for Conversation
+One test → minimal impl → next test. Never write the full test list before implementing.
+
 **File:** `backend/tests/Chat.Application.Tests/Domain/ConversationTests.cs`
-
-```
-Test: Create_GeneratesValidId
-Test: Create_StartsWithEmptyMessageList
-Test: AddMessage_AppendsToMessageList
-Test: AddMessage_WithNullMessage_ThrowsArgumentNullException
-Test: GetMessages_ReturnsMessagesInChronologicalOrder
-```
-
-### Task 1.2: GREEN — Implement Conversation domain entity
 **File:** `backend/src/Chat.Domain/Entities/Conversation.cs`
 
-Properties:
-- `Id` — `Guid`, auto-generated
-- `CreatedAt` — `DateTime`
-- `Messages` — `IReadOnlyList<ChatMessage>` (encapsulated, add via method)
+### Domain entity cycles (Conversation)
+- Cycle 1: RED `Create_GeneratesValidId` → GREEN scaffold `Conversation` with auto `Guid` Id
+- Cycle 2: RED `Create_StartsWithEmptyMessageList` → GREEN init empty internal list
+- Cycle 3: RED `AddMessage_AppendsToMessageList` → GREEN implement `AddMessage`
+- Cycle 4: RED `AddMessage_WithNullMessage_ThrowsArgumentNullException` → GREEN add null guard
+- Cycle 5: RED `GetMessages_ReturnsMessagesInChronologicalOrder` → GREEN return ordered list
+- Refactor
 
-Methods:
-- `AddMessage(ChatMessage message)` — appends to internal list
+Properties: `Id` (Guid), `CreatedAt` (DateTime), `Messages` (IReadOnlyList — encapsulated).
 
-### Task 1.3: RED — Write repository tests
+### Repository cycles (InMemoryChatRepository)
 **File:** `backend/tests/Chat.Infrastructure.Tests/Repositories/InMemoryChatRepositoryTests.cs`
+**File:** `backend/src/Chat.Infrastructure/Repositories/InMemoryChatRepository.cs`
 
-```
-Test: CreateConversationAsync_ReturnsNewConversation
-Test: GetConversationAsync_WithValidId_ReturnsConversation
-Test: GetConversationAsync_WithInvalidId_ReturnsNull
-Test: AddMessageAsync_StoresMessageInConversation
-Test: AddMessageAsync_WithInvalidConversationId_ThrowsKeyNotFoundException
-Test: GetMessagesAsync_ReturnsAllMessagesInOrder
-```
+- Cycle 1: RED `CreateConversationAsync_ReturnsNewConversation` → GREEN scaffold `IChatRepository` interface + `InMemoryChatRepository` with `ConcurrentDictionary`
+- Cycle 2: RED `GetConversationAsync_WithValidId_ReturnsConversation` → GREEN lookup by id
+- Cycle 3: RED `GetConversationAsync_WithInvalidId_ReturnsNull` → GREEN return null on miss
+- Cycle 4: RED `AddMessageAsync_StoresMessageInConversation` → GREEN append message
+- Cycle 5: RED `AddMessageAsync_WithInvalidConversationId_ThrowsKeyNotFoundException` → GREEN guard missing id
+- Cycle 6: RED `GetMessagesAsync_ReturnsAllMessagesInOrder` → GREEN return ordered messages
+- Refactor
 
-### Task 1.4: GREEN — Implement IChatRepository + InMemoryChatRepository
+### Task 1.4 — IChatRepository interface + DI note
 **Interface:** `backend/src/Chat.Application/Interfaces/IChatRepository.cs`
 ```csharp
 public interface IChatRepository
@@ -76,17 +69,16 @@ public interface IChatRepository
 
 ---
 
-## Phase 2: Backend — Updated Service + Controller (TDD)
+## Phase 2: Backend — Updated Service + Controller (TDD — vertical slices)
 
-### Task 2.1: RED — Update ChatService tests
-**File:** Update `backend/tests/Chat.Application.Tests/Services/ChatServiceTests.cs`
+### ChatService cycles
+**File:** `backend/tests/Chat.Application.Tests/Services/ChatServiceTests.cs`
 
-```
-Test: SendMessageAsync_WithNoConversationId_CreatesNewConversation
-Test: SendMessageAsync_WithExistingConversationId_AppendsToConversation
-Test: SendMessageAsync_StoresBothUserAndAssistantMessages
-Test: SendMessageAsync_ReturnsConversationIdInResponse
-```
+- Cycle 2.1: RED `SendMessageAsync_WithNoConversationId_CreatesNewConversation` → GREEN inject `IChatRepository`, create conversation when id is null
+- Cycle 2.2: RED `SendMessageAsync_WithExistingConversationId_AppendsToConversation` → GREEN look up existing conversation
+- Cycle 2.3: RED `SendMessageAsync_StoresBothUserAndAssistantMessages` → GREEN store both messages in repo
+- Cycle 2.4: RED `SendMessageAsync_ReturnsConversationIdInResponse` → GREEN include id in response DTO
+- Refactor
 
 ### Task 2.2: Update DTOs
 **New/Updated DTOs:**
@@ -102,18 +94,17 @@ Inject `IChatRepository`. Logic:
 4. Store echo response in conversation
 5. Return response with ConversationId
 
-### Task 2.4: RED — Write integration tests for history endpoint
-**File:** Update `backend/tests/Chat.Api.Tests/Controllers/ChatControllerTests.cs`
+### Controller integration cycles
+**File:** `backend/tests/Chat.Api.Tests/Controllers/ChatControllerTests.cs`
 
-```
-Test: PostMessage_ReturnsConversationIdInResponse
-Test: PostMessage_WithConversationId_ContinuesConversation
-Test: GetHistory_WithValidId_ReturnsAllMessages
-Test: GetHistory_WithInvalidId_ReturnsNotFound
-Test: GetHistory_AfterTwoMessages_ReturnsFourMessages (2 user + 2 echo)
-```
+- Cycle 2.4: RED `PostMessage_ReturnsConversationIdInResponse` → GREEN update controller to pass conversationId through
+- Cycle 2.5: RED `PostMessage_WithConversationId_ContinuesConversation` → GREEN wire optional conversationId in request body
+- Cycle 2.6: RED `GetHistory_WithValidId_ReturnsAllMessages` → GREEN add `GET /api/chat/{id}/history`
+- Cycle 2.7: RED `GetHistory_WithInvalidId_ReturnsNotFound` → GREEN return 404 on missing id
+- Cycle 2.8: RED `GetHistory_AfterTwoMessages_ReturnsFourMessages` → GREEN confirm message count (2 user + 2 echo)
+- Refactor
 
-### Task 2.5: GREEN — Update ChatController
+### Task 2.5 — Update ChatController (note)
 Add endpoints:
 - Update `POST /api/chat` — accept optional `conversationId` in body, return it in response
 - Add `GET /api/chat/{conversationId}/history` — returns all messages for a conversation
