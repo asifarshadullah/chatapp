@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { Box } from '@mui/material'
 import type { ChatMessage } from '../types/chat'
 import { MessageBubble } from './MessageBubble'
 
@@ -14,11 +15,24 @@ export function MessageList({ messages }: Props) {
   }, [messages])
 
   return (
-    <div className="message-list">
+    <Box
+      sx={{
+        flex: 1,
+        overflowY: 'auto',
+        px: 2,
+        py: 2,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 1,
+        maxWidth: 800,
+        width: '100%',
+        mx: 'auto',
+      }}
+    >
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} />
       ))}
       <div ref={bottomRef} />
-    </div>
+    </Box>
   )
 }

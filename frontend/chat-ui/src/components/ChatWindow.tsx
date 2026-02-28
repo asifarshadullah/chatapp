@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Box, Typography, Alert } from '@mui/material'
 import type { ChatMessage } from '../types/chat'
 import { sendMessage } from '../services/chatApi'
 import { MessageList } from './MessageList'
@@ -36,11 +37,49 @@ export function ChatWindow() {
     }
   }
 
+  if (messages.length === 0 && !error) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          gap: 4,
+          px: 2,
+        }}
+      >
+        <Typography
+          variant="h4"
+          sx={{ fontWeight: 400, color: 'text.primary', textAlign: 'center' }}
+        >
+          What's on the agenda today?
+        </Typography>
+        <ChatInput onSend={handleSend} isLoading={isLoading} />
+      </Box>
+    )
+  }
+
   return (
-    <div className="chat-window">
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <MessageList messages={messages} />
-      {error && <div role="alert" className="chat-error">{error}</div>}
-      <ChatInput onSend={handleSend} isLoading={isLoading} />
-    </div>
+      {error && (
+        <Alert role="alert" severity="error" sx={{ borderRadius: 0 }}>
+          {error}
+        </Alert>
+      )}
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'center',
+          px: 2,
+          py: 1.5,
+          borderTop: '1px solid #e0e0e0',
+        }}
+      >
+        <ChatInput onSend={handleSend} isLoading={isLoading} />
+      </Box>
+    </Box>
   )
 }
