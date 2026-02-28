@@ -1,6 +1,6 @@
 # ChatApp Progress Tracker
 
-## Current iteration: 2 — React UI with Vite + TypeScript ✅
+## Current iteration: 3 — Playwright E2E Tests ✅
 
 ### Phase 1: Project Setup ✅
 - [x] Scaffold `frontend/chat-ui` with `react-swc-ts` template
@@ -36,14 +36,35 @@
 
 ---
 
+## Iteration 3: Playwright E2E Tests ✅
+
+### Phase 1: Setup ✅
+- [x] Scaffold `e2e/playwright/` with `@playwright/test` 1.58.2
+- [x] Install Chromium browser binary
+- [x] Configure `playwright.config.ts` — baseURL, webServer auto-start, Chromium only, screenshot on failure
+
+### Phase 2: E2E Tests ✅
+- [x] Test 2.1: Send message and receive echo response
+- [x] Test 2.2: Multiple messages in sequence (3 user + 3 assistant)
+- [x] Test 2.3: Send button disabled when input is empty
+- [x] Test 2.4: Loading state during API call (route delay + disabled assertion)
+- [x] Test 2.5: Page elements are present
+
+### Phase 3: Helper ✅
+- [x] `tests/helpers/chat-page.ts` — ChatPage page object (sendMessage, getUserMessages, getAssistantMessages, getSendButton, getInput, waitForAssistantResponse)
+- [x] Verify: `npx playwright test` — 5/5 passing in < 5s
+
+---
+
 ## Completed iterations
 - **Iteration 1:** Backend skeleton + echo endpoint — 16 tests, tagged `iteration-1` (commit 73145d1)
-- **Iteration 2:** React UI — 22 component/service tests, `npm run build` clean
+- **Iteration 2:** React UI (MUI) — 22 component/service tests, `npm run build` clean
+- **Iteration 3:** Playwright E2E — 5 tests, Chromium, page object pattern
 
 ---
 
 ## Upcoming iterations
-- **Iteration 3:** Playwright E2E tests
+- **Iteration 4:** In-memory conversation history
 - **Iteration 4:** In-memory conversation history
 - **Iteration 5:** MongoDB persistence (Docker Compose)
 - **Iteration 6:** SignalR streaming + UX polish
