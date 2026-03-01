@@ -9,6 +9,7 @@ export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | undefined>(undefined)
 
   async function handleSend(text: string) {
     const userMessage: ChatMessage = {
@@ -22,7 +23,10 @@ export function ChatWindow() {
     setError(null)
 
     try {
-      const response = await sendMessage(text)
+      const response = await sendMessage(text, conversationId)
+      if (!conversationId) {
+        setConversationId(response.conversationId)
+      }
       const assistantMessage: ChatMessage = {
         id: response.id,
         message: response.message,

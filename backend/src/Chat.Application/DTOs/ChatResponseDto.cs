@@ -7,4 +7,5 @@ namespace Chat.Application.DTOs;
 /// <param name="Message">The response message content.</param>
 /// <param name="Role">The role of the message sender (e.g., "assistant").</param>
 /// <param name="Timestamp">UTC timestamp when this message was created.</param>
-public record ChatResponseDto(Guid Id, string Message, string Role, DateTime Timestamp);
+/// <param name="ConversationId">The ID of the conversation this message belongs to.</param>
+public record ChatResponseDto(Guid Id, string Message, string Role, DateTime Timestamp, Guid ConversationId);

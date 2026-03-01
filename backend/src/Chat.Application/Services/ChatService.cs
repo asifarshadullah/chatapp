@@ -6,31 +6,64 @@ using Chat.Domain.Enums;
 namespace Chat.Application.Services;
 
 /// <summary>
-/// Processes chat messages and returns echo responses.
+/// Processes chat messages, maintains conversation history, and returns echo responses.
 /// </summary>
 public class ChatService : IChatService
 {
+    private readonly IChatRepository _repository;
+
     /// <summary>
-    /// Processes a user message and returns an echo response.
+    /// Initializes a new instance of <see cref="ChatService"/>.
     /// </summary>
-    /// <param name="content">The user's message content.</param>
-    /// <param name="cancellationToken">Cancellation token for the operation.</param>
-    /// <returns>A <see cref="ChatResponseDto"/> containing the echo response.</returns>
-    /// <exception cref="ArgumentException">Thrown when content is null, empty, or whitespace.</exception>
-    public Task<ChatResponseDto> SendMessageAsync(string content, CancellationToken cancellationToken = default)
+    /// <param name="repository">Repository for conversation storage.</param>
+    public ChatService(IChatRepository repository)
     {
-        // Validate the user's input first (domain entity validates constructed content, not raw input)
+        _repository = repository;
+    }
+
+    /// <inheritdoc/>
+    public async Task<ChatResponseDto> SendMessageAsync(
+        string content,
+        Guid? conversationId = null,
+        CancellationToken cancellationToken = default)
+    {
         var userMessage = new ChatMessage(content, MessageRole.User);
 
-        // Create the echo response
-        var echoMessage = new ChatMessage($"Echo: {userMessage.Content}", MessageRole.Assistant);
+        var conversation = conversationId.HasValue
+            ? await _repository.GetConversationAsync(conversationId.Value, cancellationToken)
+              ?? throw new KeyNotFoundException($"Conversation '{conversationId}' not found.")
+            : await _repository.CreateConversationAsync(cancellationToken);
 
-        var response = new ChatResponseDto(
+        await _repository.AddMessageAsync(conversation.Id, userMessage, cancellationToken);
+
+        var echoMessage = new ChatMessage($"Echo: {userMessage.Content}", MessageRole.Assistant);
+        await _repository.AddMessageAsync(conversation.Id, echoMessage, cancellationToken);
+
+        return new ChatResponseDto(
             echoMessage.Id,
             echoMessage.Content,
             echoMessage.Role.ToString().ToLowerInvariant(),
-            echoMessage.Timestamp);
+            echoMessage.Timestamp,
+            conversation.Id);
+    }
 
-        return Task.FromResult(response);
+    /// <inheritdoc/>
+    public async Task<ConversationHistoryDto?> GetHistoryAsync(
+        Guid conversationId,
+        CancellationToken cancellationToken = default)
+    {
+        var conversation = await _repository.GetConversationAsync(conversationId, cancellationToken);
+        if (conversation is null)
+            return null;
+
+        var messages = conversation.Messages
+            .Select(m => new ChatMessageDto(
+                m.Id,
+                m.Content,
+                m.Role.ToString().ToLowerInvariant(),
+                m.Timestamp))
+            .ToList();
+
+        return new ConversationHistoryDto(conversationId, messages);
     }
 }

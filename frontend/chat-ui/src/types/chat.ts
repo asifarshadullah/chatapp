@@ -7,6 +7,7 @@ export interface ChatMessage {
 
 export interface ChatRequest {
   message: string
+  conversationId?: string
 }
 
 export interface ChatResponse {
@@ -14,4 +15,17 @@ export interface ChatResponse {
   message: string
   role: string
   timestamp: string
+  conversationId: string
+}
+
+export interface ChatMessageRecord {
+  id: string
+  content: string
+  role: string
+  timestamp: string
+}
+
+export interface ConversationHistory {
+  conversationId: string
+  messages: ChatMessageRecord[]
 }

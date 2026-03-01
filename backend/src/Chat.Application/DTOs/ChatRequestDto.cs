@@ -4,4 +4,5 @@ namespace Chat.Application.DTOs;
 /// Represents an incoming chat message request from the client.
 /// </summary>
 /// <param name="Message">The user's message content.</param>
-public record ChatRequestDto(string Message);
+/// <param name="ConversationId">Optional ID of an existing conversation to continue. Null creates a new conversation.</param>
+public record ChatRequestDto(string Message, Guid? ConversationId = null);

@@ -1,5 +1,6 @@
 using Chat.Application.Interfaces;
 using Chat.Application.Services;
+using Chat.Infrastructure.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,6 +8,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// Infrastructure — Singleton so in-memory conversations persist across requests
+builder.Services.AddSingleton<IChatRepository, InMemoryChatRepository>();
 
 // Application layer services
 builder.Services.AddScoped<IChatService, ChatService>();

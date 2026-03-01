@@ -4,7 +4,14 @@ import userEvent from '@testing-library/user-event'
 import { ChatWindow } from '../ChatWindow'
 import * as chatApi from '../../services/chatApi'
 
-const mockResponse = { id: '99', message: 'Echo: Hello', role: 'assistant', timestamp: '' }
+const CONVERSATION_ID = 'conv-123'
+const mockResponse = {
+  id: '99',
+  message: 'Echo: Hello',
+  role: 'assistant',
+  timestamp: '',
+  conversationId: CONVERSATION_ID,
+}
 
 describe('ChatWindow', () => {
   beforeEach(() => {
@@ -55,5 +62,22 @@ describe('ChatWindow', () => {
     await userEvent.type(screen.getByRole('textbox'), 'Hello')
     await userEvent.click(screen.getByRole('button', { name: /send/i }))
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
+  })
+
+  // Cycle 6 — sends conversationId in subsequent requests
+  it('passes conversationId to subsequent sendMessage calls', async () => {
+    const spy = vi.spyOn(chatApi, 'sendMessage').mockResolvedValue(mockResponse)
+    render(<ChatWindow />)
+
+    await userEvent.type(screen.getByRole('textbox'), 'First')
+    await userEvent.click(screen.getByRole('button', { name: /send/i }))
+    await waitFor(() => expect(screen.getByText('Echo: Hello')).toBeInTheDocument())
+
+    await userEvent.type(screen.getByRole('textbox'), 'Second')
+    await userEvent.click(screen.getByRole('button', { name: /send/i }))
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
+
+    expect(spy).toHaveBeenNthCalledWith(1, 'First', undefined)
+    expect(spy).toHaveBeenNthCalledWith(2, 'Second', CONVERSATION_ID)
   })
 })

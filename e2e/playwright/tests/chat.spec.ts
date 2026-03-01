@@ -64,6 +64,26 @@ test.describe('Chat', () => {
     await expect(assistantMsgs.nth(2)).toHaveText('Echo: Third message');
   });
 
+  // 4.2 — Messages persist within a conversation session
+  test('messages persist within a conversation session', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+
+    await chat.sendMessage('Message 1');
+    await chat.waitForAssistantResponse(1);
+
+    await chat.sendMessage('Message 2');
+    await chat.waitForAssistantResponse(2);
+
+    await expect(chat.getUserMessages()).toHaveCount(2);
+    await expect(chat.getAssistantMessages()).toHaveCount(2);
+
+    await expect(chat.getUserMessages().nth(0)).toHaveText('Message 1');
+    await expect(chat.getUserMessages().nth(1)).toHaveText('Message 2');
+    await expect(chat.getAssistantMessages().nth(0)).toHaveText('Echo: Message 1');
+    await expect(chat.getAssistantMessages().nth(1)).toHaveText('Echo: Message 2');
+  });
+
   // 2.4 — Loading state during API call
   test('shows loading state while waiting for response', async ({ page }) => {
     const chat = new ChatPage(page);
