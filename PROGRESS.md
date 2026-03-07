@@ -1,6 +1,6 @@
 # ChatApp Progress Tracker
 
-## Current iteration: 3 — Playwright E2E Tests ✅
+## Current iteration: 5 — MongoDB Persistence ✅
 
 ### Phase 1: Project Setup ✅
 - [x] Scaffold `frontend/chat-ui` with `react-swc-ts` template
@@ -60,13 +60,42 @@
 - **Iteration 1:** Backend skeleton + echo endpoint — 16 tests, tagged `iteration-1` (commit 73145d1)
 - **Iteration 2:** React UI (MUI) — 22 component/service tests, `npm run build` clean
 - **Iteration 3:** Playwright E2E — 5 tests, Chromium, page object pattern
+- **Iteration 4:** In-memory conversation history — 38 tests (domain + repo + service + controller)
+- **Iteration 5:** MongoDB persistence — 45 tests total; 7 MongoDB integration tests against real Docker DB
+
+---
+
+## Iteration 5: MongoDB Persistence ✅
+
+### Phase 1: Docker Compose Setup ✅
+- [x] `docker-compose.yml` — MongoDB 7 on port 27018, Mongo Express on 8081
+- [x] `appsettings.Development.json` — MongoDB connection string
+- [x] `Chat.Infrastructure/Configuration/MongoDbSettings.cs`
+
+### Phase 2: MongoDB Repository TDD ✅
+- [x] Add MongoDB.Driver 2.30.0 to Chat.Infrastructure
+- [x] Cycle 2.2: RED `CreateConversationAsync_StoresConversationInDatabase` → GREEN scaffold MongoChatRepository + ConversationDocument + insert
+- [x] Cycle 2.3: RED `GetConversationAsync_WithValidId_ReturnsStoredConversation` → GREEN find by id
+- [x] Cycle 2.4: RED `GetConversationAsync_WithInvalidId_ReturnsNull` → GREEN return null on miss
+- [x] Cycle 2.5: RED `AddMessageAsync_PersistsMessageToDatabase` → GREEN push message document
+- [x] Cycle 2.6: RED `GetMessagesAsync_ReturnsAllStoredMessages` → GREEN return mapped messages
+- [x] Cycle 2.7: RED `GetMessagesAsync_ReturnsMessagesInChronologicalOrder` → GREEN sort by timestamp
+- [x] Bonus: `Conversation_PersistsAcrossRepositoryInstances` — passes without new impl
+- [x] Added reconstruction constructors to Conversation and ChatMessage domain entities
+
+### Phase 3: Swap DI ✅
+- [x] `ChatApiFactory` — custom WebApplicationFactory replacing MongoDB with InMemory for API tests
+- [x] `ChatControllerTests` updated to use `ChatApiFactory` (no Docker needed)
+- [x] `Program.cs` updated — MongoDB DI wired; `MongoChatRepository` registered
+
+### Phase 4: Verification ✅
+- [x] 23/23 Application tests pass
+- [x] 13/13 Infrastructure tests pass (6 InMemory + 7 MongoDB)
+- [x] 9/9 API integration tests pass (all use InMemory via ChatApiFactory)
 
 ---
 
 ## Upcoming iterations
-- **Iteration 4:** In-memory conversation history
-- **Iteration 4:** In-memory conversation history
-- **Iteration 5:** MongoDB persistence (Docker Compose)
 - **Iteration 6:** SignalR streaming + UX polish
 
 ---
@@ -81,3 +110,7 @@
 | 2026-02-27 | Import defineConfig from vitest/config | Fixes TS error when tsconfig.node.json restricts types to ["node"] |
 | 2026-02-27 | Add vitest/globals to tsconfig.app.json types | Allows vi global to be used in test files without explicit import |
 | 2026-02-27 | Mock scrollIntoView in setup.ts | jsdom doesn't implement scrollIntoView; needed for MessageList tests |
+| 2026-03-06 | Docker MongoDB on port 27018 | Port 27017 conflicts with local MongoDB installation |
+| 2026-03-06 | authMechanism=SCRAM-SHA-256 in connection string | MongoDB 7 doesn't serve SCRAM-SHA-1 by default; .NET driver 2.30.0 requires explicit mechanism |
+| 2026-03-06 | ChatApiFactory overrides IChatRepository with InMemory | API integration tests stay Docker-free; only Infrastructure tests need Docker |
+| 2026-03-06 | Reconstruction constructors on Conversation and ChatMessage | Enables mapping from MongoDB documents back to domain entities with preserved Ids and timestamps |

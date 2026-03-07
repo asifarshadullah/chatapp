@@ -26,6 +26,15 @@ public class Conversation
     }
 
     /// <summary>
+    /// Reconstructs a conversation from persisted storage with a known ID and timestamp.
+    /// </summary>
+    public Conversation(Guid id, DateTime createdAt)
+    {
+        Id = id;
+        CreatedAt = createdAt;
+    }
+
+    /// <summary>
     /// Appends a message to this conversation.
     /// </summary>
     /// <param name="message">The message to add.</param>

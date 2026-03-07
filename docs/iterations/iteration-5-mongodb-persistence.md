@@ -89,7 +89,7 @@ Add to `Chat.Infrastructure.csproj`:
 
 Tests run against real MongoDB (Docker Compose). Use `IClassFixture` with a unique db name per run (`chatapp_test_{Guid}`); drop it in `Dispose()`.
 
-One test → minimal impl → next test:
+One test → minimal impl → next test. Never write the full test list before implementing.
 
 - Cycle 2.2: RED `CreateConversationAsync_StoresConversationInDatabase` → GREEN scaffold `MongoChatRepository` + document models + insert
 - Cycle 2.3: RED `GetConversationAsync_WithValidId_ReturnsStoredConversation` → GREEN find by id, map to domain
@@ -97,54 +97,19 @@ One test → minimal impl → next test:
 - Cycle 2.5: RED `AddMessageAsync_PersistsMessageToDatabase` → GREEN push message to document
 - Cycle 2.6: RED `GetMessagesAsync_ReturnsAllStoredMessages` → GREEN return mapped messages
 - Cycle 2.7: RED `GetMessagesAsync_ReturnsMessagesInChronologicalOrder` → GREEN sort by timestamp
-- Cycle 2.8: RED `Conversation_PersistsAcrossRepositoryInstances` → GREEN proves real DB (should pass if above implemented correctly)
+- Bonus verification: `Conversation_PersistsAcrossRepositoryInstances` — no new impl needed; passes once the above cycles are complete (proves real DB, not just in-memory state)
 - Refactor
-
-### Task 2.3: Create MongoDB document models
-**File:** `backend/src/Chat.Infrastructure/Data/Documents/ConversationDocument.cs`
-
-MongoDB documents are separate from domain entities — they represent the storage format.
-```csharp
-public class ConversationDocument
-{
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
-    public Guid Id { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public List<ChatMessageDocument> Messages { get; set; } = new();
-}
-
-public class ChatMessageDocument
-{
-    public Guid Id { get; set; }
-    public string Content { get; set; } = string.Empty;
-    public string Role { get; set; } = string.Empty;
-    public DateTime Timestamp { get; set; }
-}
-```
-
-### Task 2.4: GREEN — Implement MongoChatRepository
-**File:** `backend/src/Chat.Infrastructure/Repositories/MongoChatRepository.cs`
-
-Implements `IChatRepository` using MongoDB.Driver:
-- Inject `IMongoDatabase` via constructor
-- Collection name: `conversations`
-- Map between domain entities and MongoDB documents
-- Use MongoDB BSON serialization
-
-### Task 2.5: Create mapping between domain entities and documents
-**File:** `backend/src/Chat.Infrastructure/Data/Mappers/ConversationMapper.cs`
-
-Static methods:
-- `ToDocument(Conversation entity) → ConversationDocument`
-- `ToDomain(ConversationDocument doc) → Conversation`
-- `ToDocument(ChatMessage entity) → ChatMessageDocument`
 
 ---
 
 ## Phase 3: Swap DI Registration
 
-### Task 3.1: Update Program.cs dependency registration
+### Cycle 3.1: RED `PostMessage_WithMongoDI_PersistsConversationAcrossRequests` → GREEN swap DI
+**File:** `backend/tests/Chat.Api.Tests/Controllers/ChatControllerTests.cs`
+
+Add one integration test that uses a `WebApplicationFactory` wired to real MongoDB (separate from the in-memory factory used by other tests). The test sends two requests with the same `conversationId` and asserts both messages appear in history. This test is RED until the DI swap below is made.
+
+### Task 3.2: Update Program.cs dependency registration
 **File:** `backend/src/Chat.Api/Program.cs`
 
 ```csharp
@@ -169,7 +134,7 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 builder.Services.AddScoped<IChatRepository, MongoChatRepository>();
 ```
 
-### Task 3.2: Keep InMemoryChatRepository for testing
+### Task 3.3: Keep InMemoryChatRepository for testing
 Do NOT delete `InMemoryChatRepository`. It's still useful for:
 - Integration tests (fast, no Docker dependency)
 - Fallback if MongoDB is unavailable

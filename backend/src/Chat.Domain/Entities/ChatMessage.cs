@@ -49,4 +49,15 @@ public class ChatMessage
         Role = role;
         Timestamp = DateTime.UtcNow;
     }
+
+    /// <summary>
+    /// Reconstructs a chat message from persisted storage with known identity fields.
+    /// </summary>
+    public ChatMessage(Guid id, string content, MessageRole role, DateTime timestamp)
+    {
+        Id = id;
+        Content = content;
+        Role = role;
+        Timestamp = timestamp;
+    }
 }

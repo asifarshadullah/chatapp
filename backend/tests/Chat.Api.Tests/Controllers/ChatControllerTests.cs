@@ -1,20 +1,20 @@
 using System.Net;
 using System.Net.Http.Json;
+using Chat.Api.Tests.Infrastructure;
 using Chat.Application.DTOs;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Chat.Api.Tests.Controllers;
 
 /// <summary>
 /// Integration tests for the ChatController endpoint.
-/// Uses WebApplicationFactory to spin up an in-memory test server.
+/// Uses ChatApiFactory (InMemoryChatRepository) so tests run without Docker.
 /// </summary>
-public class ChatControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public class ChatControllerTests : IClassFixture<ChatApiFactory>
 {
     private readonly HttpClient _client;
 
-    public ChatControllerTests(WebApplicationFactory<Program> factory)
+    public ChatControllerTests(ChatApiFactory factory)
     {
         _client = factory.CreateClient();
     }
