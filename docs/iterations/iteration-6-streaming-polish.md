@@ -18,79 +18,31 @@ plus production-ready UX improvements.
 ## Phase 1: SignalR Backend Setup
 
 ### Task 1.1: Add SignalR to the backend
-Add to `Chat.Api.csproj`:
-```xml
-<PackageReference Include="Microsoft.AspNetCore.SignalR" Version="..." />
-```
-(SignalR is included in `Microsoft.AspNetCore.App` shared framework, so explicit package may not be needed.)
+SignalR is included in `Microsoft.AspNetCore.App` shared framework — no extra NuGet package needed.
 
-### ChatHub cycles (TDD — vertical slices)
-**File:** `backend/tests/Chat.Api.Tests/Hubs/ChatHubTests.cs`
-
-Use `HubConnectionBuilder` in tests pointing to the test server. One test → minimal impl → next test:
-
-- Cycle 1.2: RED `SendMessage_StreamsEchoResponseWordByWord` → GREEN scaffold `ChatHub` with `IAsyncEnumerable<string>`, yield words with delay
-- Cycle 1.3: RED `SendMessage_StoresMessagesInConversation` → GREEN inject `IChatService`, store messages
-- Cycle 1.4: RED `SendMessage_WithNewConversation_ReturnsConversationId` → GREEN emit conversationId via client callback
-- Cycle 1.5: RED `SendMessage_WithInvalidContent_SendsErrorMessage` → GREEN validate message, send error to caller
-- Refactor
-
-### Task 1.3 — Implement ChatHub (note)
-**File:** `backend/src/Chat.Api/Hubs/ChatHub.cs`
-
-```csharp
-public class ChatHub : Hub
-{
-    private readonly IChatService _chatService;
-
-    public ChatHub(IChatService chatService) { ... }
-
-    public async IAsyncEnumerable<string> SendMessage(
-        string message,
-        Guid? conversationId,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        // 1. Validate message
-        // 2. Create/get conversation
-        // 3. Store user message
-        // 4. Generate echo response
-        // 5. Stream response word by word with delay
-        // 6. Store complete assistant message
-
-        var words = echoResponse.Split(' ');
-        foreach (var word in words)
-        {
-            yield return word + " ";
-            await Task.Delay(50, cancellationToken); // Simulate typing
-        }
-    }
-}
-```
-
-### Task 1.4: Update Application layer for streaming
-**File:** Add to `IChatService`:
-```csharp
-IAsyncEnumerable<string> StreamMessageAsync(
-    string content,
-    Guid? conversationId,
-    CancellationToken cancellationToken = default);
-```
-
-Implementation in `ChatService`: split echo response into words, yield with delay.
-
-### Task 1.5: Register SignalR in Program.cs
+### Task 1.2: Register SignalR and map the hub in Program.cs
 ```csharp
 builder.Services.AddSignalR();
 // ...
 app.MapHub<ChatHub>("/chatHub");
 ```
 
-### Task 1.6: Keep REST endpoints
-Do NOT remove the POST `/api/chat` and GET `/api/chat/{id}/history` endpoints.
-They remain for:
-- Backward compatibility
-- API testing and debugging
-- Non-browser clients
+### Task 1.3: Keep REST endpoints
+Do NOT remove the existing conversation/message endpoints. They remain for API testing,
+debugging, and non-browser clients.
+
+### ChatHub cycles (TDD — vertical slices)
+**One test → minimal impl → next test. Never write the full test list before implementing.**
+
+**File:** `backend/tests/Chat.Api.Tests/Hubs/ChatHubTests.cs`
+
+Use `HubConnectionBuilder` in tests pointing to the test server's `/chatHub` endpoint.
+
+- Cycle 1.4: RED `SendMessage_StreamsEchoResponseWordByWord` → GREEN scaffold `ChatHub` with `IAsyncEnumerable<string>`, split content into words, yield with delay
+- Cycle 1.5: RED `SendMessage_StoresMessagesInConversation` → GREEN inject `IChatService`, store user + assistant messages
+- Cycle 1.6: RED `SendMessage_WithNewConversation_ReturnsConversationId` → GREEN emit conversationId via client callback
+- Cycle 1.7: RED `SendMessage_WithInvalidContent_SendsErrorMessage` → GREEN validate, send error to caller
+- Refactor
 
 ---
 
@@ -102,57 +54,25 @@ cd frontend/chat-ui
 npm install @microsoft/signalr
 ```
 
-### Task 2.2: Create SignalR service
-**File:** `frontend/chat-ui/src/services/signalRService.ts`
+### Frontend cycles (TDD — vertical slices)
+**One test → minimal impl → next test. Never write the full test list before implementing.**
 
-```typescript
-import * as signalR from '@microsoft/signalr';
+**File:** `frontend/chat-ui/src/components/ChatWindow.test.tsx`
 
-class ChatConnection {
-  private connection: signalR.HubConnection;
+Mock the SignalR connection (`vi.mock('../services/signalRService')`). Let the service file and
+connection lifecycle emerge from what the tests require.
 
-  constructor() {
-    this.connection = new signalR.HubConnectionBuilder()
-      .withUrl('/chatHub')
-      .withAutomaticReconnect()
-      .build();
-  }
-
-  async start(): Promise<void> { ... }
-  async stop(): Promise<void> { ... }
-
-  async sendMessage(
-    message: string,
-    conversationId: string | null,
-    onWord: (word: string) => void,
-    onComplete: (conversationId: string) => void,
-    onError: (error: string) => void
-  ): Promise<void> {
-    // Use connection.stream() for server-streaming
-  }
-}
-
-export const chatConnection = new ChatConnection();
-```
-
-### Task 2.3: Update ChatWindow to use SignalR
-**File:** Update `frontend/chat-ui/src/components/ChatWindow.tsx`
-
-Changes:
-- Initialize SignalR connection on mount, disconnect on unmount
-- Replace `fetch` calls with `chatConnection.sendMessage()`
-- Build assistant response incrementally as words stream in
-- Show typing indicator while streaming
-
-### Task 2.4: Write/update component tests
-Mock the SignalR connection in tests. Verify:
-- Messages accumulate word by word
-- Typing indicator shows during streaming
-- Error handling works for connection issues
+- Cycle 2.2: RED `renders streaming words as they arrive` → GREEN update ChatWindow to accept words via streaming callback and accumulate into assistant message
+- Cycle 2.3: RED `shows typing indicator while streaming` → GREEN add `isStreaming` state, render indicator when true
+- Cycle 2.4: RED `hides typing indicator when streaming completes` → GREEN clear `isStreaming` on stream end callback
+- Cycle 2.5: RED `shows error message when connection fails` → GREEN handle error callback, display error banner
+- Refactor
 
 ---
 
 ## Phase 3: UX Polish
+
+> UX polish — not test-driven. Verify manually during development and via E2E in Phase 4.
 
 ### Task 3.1: Typing indicator
 Show animated "..." or pulsing dots while the assistant is "typing" (streaming).
@@ -183,10 +103,12 @@ Hide when streaming completes.
 
 ---
 
-## Phase 4: Update Tests
+## Phase 4: E2E Verification
 
-### Task 4.1: Update E2E tests for streaming behavior
-**File:** Update `e2e/playwright/tests/chat.spec.ts`
+### Cycle 4.1: RED before Phase 3 work
+Write the streaming E2E test first — it will fail until Phase 3 makes it pass.
+
+**File:** `e2e/playwright/tests/chat.spec.ts`
 
 ```
 Test: "response appears word by word (streaming)"

@@ -95,8 +95,47 @@
 
 ---
 
-## Upcoming iterations
-- **Iteration 6:** SignalR streaming + UX polish
+## Current iteration: 6 — SignalR Streaming + UX Polish ✅
+
+### Phase 1: SignalR Backend Setup ✅
+- [x] Task 1.1: `AddSignalR()` in Program.cs (included in ASP.NET Core 8 — no extra NuGet)
+- [x] Task 1.2: Register hub in Program.cs — `app.MapHub<ChatHub>("/chatHub")`
+- [x] Task 1.3: CORS updated to add `AllowCredentials()` (required for SignalR)
+- [x] Task 1.3: Added `Microsoft.AspNetCore.SignalR.Client` to `Chat.Api.Tests.csproj`
+- [x] Cycle 1.4: RED `SendMessage_StreamsEchoResponseWordByWord` → GREEN `ChatHub` with `IAsyncEnumerable<string>`, yield words with 50ms delay
+- [x] Cycle 1.5: RED `SendMessage_StoresMessagesInConversation` → GREEN inject `IChatService`, emit `ReceiveConversationId` before stream
+- [x] Cycle 1.6: RED `SendMessage_WithExistingConversationId_ContinuesSameConversation` → GREEN (passes from Cycle 1.5 impl)
+- [x] Cycle 1.7: RED `SendMessage_WithEmptyContent_ThrowsHubException` → GREEN validate + throw `HubException`
+
+### Phase 2: Frontend SignalR Integration ✅
+- [x] Task 2.1: Add `/chatHub` WebSocket proxy to `vite.config.ts`
+- [x] `signalRService.ts` created — `HubConnectionBuilder`, `StreamCallbacks` interface, word-by-word streaming
+- [x] Cycle 2.2: RED `renders streaming words as they arrive` → GREEN ChatWindow accumulates words via `streamingIdRef`
+- [x] Cycle 2.3: RED `shows typing indicator while streaming` → GREEN `isStreaming` state + `aria-label="typing indicator"` box
+- [x] Cycle 2.4: RED `hides typing indicator when streaming completes` → GREEN clear `isStreaming` on `onComplete`
+- [x] Cycle 2.5: RED `shows error banner when connection fails` → GREEN `onError` callback clears streaming message
+- [x] Existing ChatWindow tests updated to mock `signalRService` instead of `chatApi`
+
+### Phase 3: UX Polish ✅
+- [x] Typing indicator: CircularProgress + "Assistant is typing…" text while `isStreaming=true`
+- [x] Message fade-in animation (`bubble-in` keyframe in `Chat.css`)
+- [x] Input disabled while streaming (`isLoading={isStreaming}` prop)
+- [x] Error banner clears incomplete streaming message on failure
+
+### Phase 4: E2E Verification ✅
+- [x] Cycle 4.1: RED `response streams word by word with typing indicator` — written before Phase 3
+- [x] Updated existing loading state E2E test to use streaming (removed route interception, checks indicator)
+- [x] Existing response-text E2E tests pass unchanged (Playwright normalizes trailing whitespace)
+
+---
+
+## Completed iterations
+- **Iteration 1:** Backend skeleton + echo endpoint — 16 tests, tagged `iteration-1` (commit 73145d1)
+- **Iteration 2:** React UI (MUI) — 22 component/service tests, `npm run build` clean
+- **Iteration 3:** Playwright E2E — 5 tests, Chromium, page object pattern
+- **Iteration 4:** In-memory conversation history — 38 tests (domain + repo + service + controller)
+- **Iteration 5:** MongoDB persistence — 45 tests total; 7 MongoDB integration tests against real Docker DB
+- **Iteration 6:** SignalR streaming + UX polish — 4 hub integration tests + 10 frontend component tests
 
 ---
 
@@ -114,3 +153,8 @@
 | 2026-03-06 | authMechanism=SCRAM-SHA-256 in connection string | MongoDB 7 doesn't serve SCRAM-SHA-1 by default; .NET driver 2.30.0 requires explicit mechanism |
 | 2026-03-06 | ChatApiFactory overrides IChatRepository with InMemory | API integration tests stay Docker-free; only Infrastructure tests need Docker |
 | 2026-03-06 | Reconstruction constructors on Conversation and ChatMessage | Enables mapping from MongoDB documents back to domain entities with preserved Ids and timestamps |
+| 2026-03-07 | SignalR hub uses IAsyncEnumerable<string> for server streaming | Native .NET 8 streaming; no custom protocol needed |
+| 2026-03-07 | ReceiveConversationId sent via Clients.Caller.SendAsync before stream | Decouples conversationId delivery from word stream; client receives it before first word |
+| 2026-03-07 | streamingIdRef + functional setState for in-place message updates | Avoids closure over stale state; streaming message updated in the messages array directly |
+| 2026-03-07 | signalRService mocked via vi.mock factory in component tests | Avoids real WebSocket connections in jsdom; StreamCallbacks interface keeps mock API clean |
+| 2026-03-07 | 50ms delay per word in ChatHub | Visually perceptible streaming effect; keeps hub tests under 1s per test |

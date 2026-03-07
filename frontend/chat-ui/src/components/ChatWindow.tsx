@@ -1,15 +1,29 @@
-import { useState } from 'react'
-import { Box, Typography, Alert } from '@mui/material'
+import { useEffect, useRef, useState } from 'react'
+import { Box, CircularProgress, Typography, Alert } from '@mui/material'
 import type { ChatMessage } from '../types/chat'
-import { sendMessage } from '../services/chatApi'
+import { signalRService } from '../services/signalRService'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 
 export function ChatWindow() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [isLoading, setIsLoading] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [conversationId, setConversationId] = useState<string | undefined>(undefined)
+  const [conversationId, setConversationId] = useState<string | undefined>()
+  const streamingIdRef = useRef<string | null>(null)
+  const streamingContentRef = useRef('')
+
+  useEffect(() => {
+    let cancelled = false
+    signalRService
+      .start()
+      .then(() => { if (!cancelled) setError(null) })
+      .catch(() => { if (!cancelled) setError('Failed to connect to chat server.') })
+    return () => {
+      cancelled = true
+      signalRService.stop()
+    }
+  }, [])
 
   async function handleSend(text: string) {
     const userMessage: ChatMessage = {
@@ -19,26 +33,49 @@ export function ChatWindow() {
       timestamp: new Date().toISOString(),
     }
     setMessages((prev) => [...prev, userMessage])
-    setIsLoading(true)
+    setIsStreaming(true)
     setError(null)
 
-    try {
-      const response = await sendMessage(text, conversationId)
-      if (!conversationId) {
-        setConversationId(response.conversationId)
-      }
-      const assistantMessage: ChatMessage = {
-        id: response.id,
-        message: response.message,
-        role: 'assistant',
-        timestamp: response.timestamp,
-      }
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
-    } finally {
-      setIsLoading(false)
-    }
+    const streamingId = crypto.randomUUID()
+    streamingIdRef.current = streamingId
+    streamingContentRef.current = ''
+
+    await signalRService.sendMessage(text, conversationId, {
+      onConversationId: (id) => setConversationId(id),
+      onWord: (word) => {
+        streamingContentRef.current += word
+        const content = streamingContentRef.current
+        setMessages((prev) => {
+          const exists = prev.some((m) => m.id === streamingIdRef.current)
+          if (exists) {
+            return prev.map((m) =>
+              m.id === streamingIdRef.current ? { ...m, message: content } : m,
+            )
+          }
+          return [
+            ...prev,
+            {
+              id: streamingIdRef.current!,
+              message: content,
+              role: 'assistant' as const,
+              timestamp: new Date().toISOString(),
+            },
+          ]
+        })
+      },
+      onComplete: () => {
+        setIsStreaming(false)
+        streamingIdRef.current = null
+        streamingContentRef.current = ''
+      },
+      onError: (err) => {
+        setIsStreaming(false)
+        setError(err)
+        setMessages((prev) => prev.filter((m) => m.id !== streamingIdRef.current))
+        streamingIdRef.current = null
+        streamingContentRef.current = ''
+      },
+    })
   }
 
   if (messages.length === 0 && !error) {
@@ -60,7 +97,7 @@ export function ChatWindow() {
         >
           What's on the agenda today?
         </Typography>
-        <ChatInput onSend={handleSend} isLoading={isLoading} />
+        <ChatInput onSend={handleSend} isLoading={isStreaming} />
       </Box>
     )
   }
@@ -68,6 +105,17 @@ export function ChatWindow() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <MessageList messages={messages} />
+      {isStreaming && (
+        <Box
+          aria-label="typing indicator"
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 3, py: 1 }}
+        >
+          <CircularProgress size={14} thickness={5} />
+          <Typography variant="caption" color="text.secondary">
+            Assistant is typing…
+          </Typography>
+        </Box>
+      )}
       {error && (
         <Alert role="alert" severity="error" sx={{ borderRadius: 0 }}>
           {error}
@@ -82,7 +130,7 @@ export function ChatWindow() {
           borderTop: '1px solid #e0e0e0',
         }}
       >
-        <ChatInput onSend={handleSend} isLoading={isLoading} />
+        <ChatInput onSend={handleSend} isLoading={isStreaming} />
       </Box>
     </Box>
   )

@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.*" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.*" />
   </ItemGroup>
 
 </Project>

@@ -84,24 +84,37 @@ test.describe('Chat', () => {
     await expect(chat.getAssistantMessages().nth(1)).toHaveText('Echo: Message 2');
   });
 
-  // 2.4 — Loading state during API call
-  test('shows loading state while waiting for response', async ({ page }) => {
+  // Cycle 4.1 — Streaming: typing indicator appears then response arrives
+  test('response streams word by word with typing indicator', async ({ page }) => {
     const chat = new ChatPage(page);
-
-    // Delay the API response by 500ms so we can observe the loading state
-    await page.route('**/api/chat', async (route) => {
-      await page.waitForTimeout(500);
-      await route.continue();
-    });
-
     await chat.goto();
-    await chat.getInput().fill('Hello');
+
+    await chat.getInput().fill('Hello World');
     await chat.getSendButton().click();
 
-    // Input is disabled while loading
+    // Typing indicator appears while streaming
+    await expect(page.getByLabel('typing indicator')).toBeVisible();
+
+    // Full response eventually appears (streaming completes)
+    await chat.waitForAssistantResponse(1);
+    await expect(chat.getAssistantMessages().first()).toHaveText('Echo: Hello World');
+
+    // Typing indicator disappears once done
+    await expect(page.getByLabel('typing indicator')).not.toBeVisible();
+  });
+
+  // 2.4 — Input disabled during streaming
+  test('input is disabled while streaming response', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+
+    await chat.getInput().fill('Hello there today');
+    await chat.getSendButton().click();
+
+    // Input is disabled while streaming
     await expect(chat.getInput()).toBeDisabled();
 
-    // Input re-enables after response arrives
+    // Input re-enables after stream completes
     await chat.waitForAssistantResponse(1);
     await expect(chat.getInput()).toBeEnabled();
   });
