@@ -22,7 +22,7 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
     // ── POST /api/chat ──────────────────────────────────────────────────────
 
     [Fact]
-    public async Task PostMessage_WithValidContent_ReturnsOkWithEchoResponse()
+    public async Task PostMessage_WithValidContent_ReturnsOkWithAiResponse()
     {
         var request = new ChatRequestDto("Hello");
 
@@ -32,7 +32,7 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
         var result = await response.Content.ReadFromJsonAsync<ChatResponseDto>();
         result.Should().NotBeNull();
         result!.Id.Should().NotBeEmpty();
-        result.Message.Should().Be("Echo: Hello");
+        result.Message.Should().Be("Fake AI response");
         result.Role.Should().Be("assistant");
         result.Timestamp.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
     }

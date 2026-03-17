@@ -1,6 +1,7 @@
 using Chat.Api.Hubs;
 using Chat.Application.Interfaces;
 using Chat.Application.Services;
+using Chat.Infrastructure.AI;
 using Chat.Infrastructure.Configuration;
 using Chat.Infrastructure.Repositories;
 using Microsoft.Extensions.Options;
@@ -33,6 +34,11 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 
 // Swap: InMemoryChatRepository → MongoChatRepository
 builder.Services.AddScoped<IChatRepository, MongoChatRepository>();
+
+// Ollama AI provider
+builder.Services.Configure<OllamaSettings>(
+    builder.Configuration.GetSection("Ollama"));
+builder.Services.AddScoped<IAiProvider, OllamaAiProvider>();
 
 // Application layer services
 builder.Services.AddScoped<IChatService, ChatService>();

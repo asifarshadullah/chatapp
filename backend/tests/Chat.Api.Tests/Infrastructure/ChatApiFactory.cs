@@ -1,4 +1,6 @@
+using System.Runtime.CompilerServices;
 using Chat.Application.Interfaces;
+using Chat.Domain.Entities;
 using Chat.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -8,7 +10,7 @@ namespace Chat.Api.Tests.Infrastructure;
 
 /// <summary>
 /// Custom WebApplicationFactory that replaces MongoDB with InMemoryChatRepository
-/// so API integration tests run without a Docker dependency.
+/// and Ollama with FakeAiProvider so API integration tests run without any external dependencies.
 /// </summary>
 public class ChatApiFactory : WebApplicationFactory<Program>
 {
@@ -16,13 +18,34 @@ public class ChatApiFactory : WebApplicationFactory<Program>
     {
         builder.ConfigureServices(services =>
         {
-            // Remove any existing IChatRepository registration (MongoDB or InMemory)
-            var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IChatRepository));
-            if (descriptor is not null)
-                services.Remove(descriptor);
-
-            // Replace with fast in-memory repository — no Docker needed
+            // Replace MongoDB repository with fast in-memory version
+            var repoDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IChatRepository));
+            if (repoDescriptor is not null)
+                services.Remove(repoDescriptor);
             services.AddSingleton<IChatRepository, InMemoryChatRepository>();
+
+            // Replace Ollama AI provider with a deterministic fake
+            var aiDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IAiProvider));
+            if (aiDescriptor is not null)
+                services.Remove(aiDescriptor);
+            services.AddSingleton<IAiProvider, FakeAiProvider>();
         });
+    }
+}
+
+/// <summary>
+/// Deterministic AI provider for integration tests.
+/// Returns a fixed response so tests are fast, offline, and predictable.
+/// </summary>
+public class FakeAiProvider : IAiProvider
+{
+    public async IAsyncEnumerable<string> StreamCompletionAsync(
+        IReadOnlyList<ChatMessage> history,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        yield return "Fake";
+        yield return " AI";
+        yield return " response";
+        await Task.Yield();
     }
 }

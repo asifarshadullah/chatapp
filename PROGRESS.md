@@ -129,6 +129,46 @@
 
 ---
 
+## Current iteration: 7 — Local LLM Integration (Ollama) ✅
+
+### Phase 1: IAiProvider interface ✅
+- [x] `Chat.Application/Interfaces/IAiProvider.cs`
+
+### Phase 2: Update ChatService (TDD) ✅
+- [x] Add `StreamResponseAsync` to `IChatService`
+- [x] Update `ChatService` constructor to accept `IAiProvider`
+- [x] Cycle 2.2: `StreamResponseAsync_YieldsTokensFromAiProvider`
+- [x] Cycle 2.3: `StreamResponseAsync_ConversationIdPresentOnEveryItem`
+- [x] Cycle 2.4: `StreamResponseAsync_SavesUserMessageBeforeAnyTokenYielded`
+- [x] Cycle 2.5: `StreamResponseAsync_SavesCompleteAssistantMessageAfterStreamCompletes`
+- [x] Cycle 2.6: `StreamResponseAsync_PassesFullHistoryIncludingUserMessageToProvider`
+- [x] Cycle 2.7: `StreamResponseAsync_WithNoConversationId_CreatesNewConversation`
+
+### Phase 3: Update ChatHub (TDD) ✅
+- [x] Cycle 3.1: `SendMessage_StreamsAiTokens` → GREEN (hub calls StreamResponseAsync)
+- [x] Cycle 3.2: `SendMessage_StoresMessagesInConversation` (asserts full "Fake AI response")
+- [x] Cycle 3.3: `SendMessage_WithExistingConversationId_ContinuesSameConversation`
+- [x] Cycle 3.4: `SendMessage_WithEmptyContent_ThrowsHubException`
+- [x] Controller test updated: echo → AI response
+
+### Phase 4: OllamaAiProvider (Infrastructure) ✅
+- [x] OllamaSharp 4.0.22 added to Chat.Infrastructure
+- [x] `OllamaSettings.cs` config class
+- [x] Ollama section added to appsettings.Development.json (BaseUrl + Model)
+- [x] `OllamaAiProvider` implemented
+
+### Phase 5: DI wiring + test isolation ✅
+- [x] `Program.cs` registers OllamaSettings + OllamaAiProvider
+- [x] `ChatApiFactory` replaces both IChatRepository and IAiProvider with fakes
+- [x] `FakeAiProvider` added to ChatApiFactory (yields "Fake AI response")
+
+### Phase 6: Verification ✅
+- [x] 29/29 Application tests pass
+- [x] 13/13 API tests pass (no Ollama/Docker needed)
+- [ ] Manual E2E: real LLM response streams in the browser (run manually)
+
+---
+
 ## Completed iterations
 - **Iteration 1:** Backend skeleton + echo endpoint — 16 tests, tagged `iteration-1` (commit 73145d1)
 - **Iteration 2:** React UI (MUI) — 22 component/service tests, `npm run build` clean
@@ -136,6 +176,7 @@
 - **Iteration 4:** In-memory conversation history — 38 tests (domain + repo + service + controller)
 - **Iteration 5:** MongoDB persistence — 45 tests total; 7 MongoDB integration tests against real Docker DB
 - **Iteration 6:** SignalR streaming + UX polish — 4 hub integration tests + 10 frontend component tests
+- **Iteration 7:** Local LLM (Ollama) — IAiProvider abstraction, OllamaAiProvider, StreamResponseAsync — 42 backend tests
 
 ---
 
@@ -158,3 +199,8 @@
 | 2026-03-07 | streamingIdRef + functional setState for in-place message updates | Avoids closure over stale state; streaming message updated in the messages array directly |
 | 2026-03-07 | signalRService mocked via vi.mock factory in component tests | Avoids real WebSocket connections in jsdom; StreamCallbacks interface keeps mock API clean |
 | 2026-03-07 | 50ms delay per word in ChatHub | Visually perceptible streaming effect; keeps hub tests under 1s per test |
+| 2026-03-18 | IAiProvider in Application, OllamaAiProvider in Infrastructure | Application defines what it needs; Infrastructure fulfills it — dependency inversion in practice |
+| 2026-03-18 | StreamResponseAsync returns IAsyncEnumerable<(Guid, string)> | ConversationId must reach the hub before first token; tuple carries it on every yield |
+| 2026-03-18 | OllamaSharp 4.0.22 over raw HttpClient | Handles NDJSON streaming protocol; keeps OllamaAiProvider focused on mapping, not HTTP parsing |
+| 2026-03-18 | FakeAiProvider in ChatApiFactory | All API/hub integration tests run offline with no Ollama dependency |
+| 2026-03-18 | Model name in appsettings.Development.json | Switching models (gemma2:2b → phi3:mini) requires zero code changes |

@@ -5,7 +5,7 @@ using System.Runtime.CompilerServices;
 namespace Chat.Api.Hubs;
 
 /// <summary>
-/// SignalR hub that streams chat echo responses word-by-word.
+/// SignalR hub that streams AI responses token by token.
 /// </summary>
 public class ChatHub : Hub
 {
@@ -20,8 +20,8 @@ public class ChatHub : Hub
     }
 
     /// <summary>
-    /// Accepts a user message, stores it, then streams the echo response word by word.
-    /// Sends "ReceiveConversationId" to the caller before the first word.
+    /// Accepts a user message, saves it, then streams AI response tokens one at a time.
+    /// Sends "ReceiveConversationId" to the caller before the first token.
     /// </summary>
     /// <param name="message">The user's message.</param>
     /// <param name="conversationId">Optional existing conversation to continue. Null creates a new one.</param>
@@ -34,15 +34,16 @@ public class ChatHub : Hub
         if (string.IsNullOrWhiteSpace(message))
             throw new HubException("Message cannot be empty.");
 
-        var response = await _chatService.SendMessageAsync(message, conversationId, cancellationToken);
+        bool conversationIdSent = false;
 
-        await Clients.Caller.SendAsync("ReceiveConversationId", response.ConversationId, cancellationToken);
-
-        foreach (var word in response.Message.Split(' '))
+        await foreach (var (convId, token) in _chatService.StreamResponseAsync(message, conversationId, cancellationToken))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            yield return word + " ";
-            await Task.Delay(50, cancellationToken);
+            if (!conversationIdSent)
+            {
+                await Clients.Caller.SendAsync("ReceiveConversationId", convId, cancellationToken);
+                conversationIdSent = true;
+            }
+            yield return token;
         }
     }
 }

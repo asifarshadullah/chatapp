@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.SignalR.Client;
 namespace Chat.Api.Tests.Hubs;
 
 /// <summary>
-/// Integration tests for ChatHub using InMemoryChatRepository (no Docker needed).
+/// Integration tests for ChatHub using InMemoryChatRepository + FakeAiProvider (no external dependencies).
 /// </summary>
 public class ChatHubTests : IClassFixture<ChatApiFactory>
 {
@@ -30,23 +30,24 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
             .Build();
     }
 
-    // ── Cycle 1.4 ──────────────────────────────────────────────────────────
+    // ── Cycle 3.1 ──────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task SendMessage_StreamsEchoResponseWordByWord()
+    public async Task SendMessage_StreamsAiTokens()
     {
         var connection = CreateHubConnection();
         await connection.StartAsync();
         try
         {
             var received = new List<string>();
-            await foreach (var word in connection.StreamAsync<string>(
-                "SendMessage", "Hello World", (Guid?)null, CancellationToken.None))
+            await foreach (var token in connection.StreamAsync<string>(
+                "SendMessage", "Hello", (Guid?)null, CancellationToken.None))
             {
-                received.Add(word);
+                received.Add(token);
             }
 
-            string.Join("", received).Trim().Should().Be("Echo: Hello World");
+            // FakeAiProvider yields "Fake", " AI", " response"
+            string.Join("", received).Should().Be("Fake AI response");
         }
         finally
         {
@@ -54,7 +55,7 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
         }
     }
 
-    // ── Cycle 1.5 ──────────────────────────────────────────────────────────
+    // ── Cycle 3.2 ──────────────────────────────────────────────────────────
 
     [Fact]
     public async Task SendMessage_StoresMessagesInConversation()
@@ -78,6 +79,8 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
             history!.Messages.Should().HaveCount(2);
             history.Messages.Should().ContainSingle(m =>
                 m.Role == "user" && m.Content == "Stored message");
+            history.Messages.Should().ContainSingle(m =>
+                m.Role == "assistant" && m.Content == "Fake AI response");
         }
         finally
         {
@@ -85,7 +88,7 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
         }
     }
 
-    // ── Cycle 1.6 ──────────────────────────────────────────────────────────
+    // ── Cycle 3.3 ──────────────────────────────────────────────────────────
 
     [Fact]
     public async Task SendMessage_WithExistingConversationId_ContinuesSameConversation()
@@ -108,7 +111,7 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
             var history = await (await client.GetAsync($"/api/chat/{firstConversationId}/history"))
                 .Content.ReadFromJsonAsync<ConversationHistoryDto>();
 
-            history!.Messages.Should().HaveCount(4); // user + echo + user + echo
+            history!.Messages.Should().HaveCount(4); // user + ai + user + ai
         }
         finally
         {
@@ -116,7 +119,7 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
         }
     }
 
-    // ── Cycle 1.7 ──────────────────────────────────────────────────────────
+    // ── Cycle 3.4 ──────────────────────────────────────────────────────────
 
     [Fact]
     public async Task SendMessage_WithEmptyContent_ThrowsHubException()
