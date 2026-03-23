@@ -1,0 +1,122 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
+using System.Security.Claims;
+using System.Text;
+using Chat.Application.Interfaces;
+using Chat.Identity.Application.DTOs;
+using Chat.Identity.Application.Interfaces;
+using Chat.Identity.Domain.Entities;
+using Chat.Infrastructure.Repositories;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
+
+namespace Chat.Identity.Tests.Infrastructure;
+
+/// <summary>
+/// WebApplicationFactory for Chat.Identity integration tests.
+/// Replaces external dependencies (MongoDB, Ollama, real IdentityService) with fakes.
+/// Uses a known JWT secret so tests can create valid tokens for [Authorize] endpoints.
+/// </summary>
+public class AuthApiFactory : WebApplicationFactory<Program>
+{
+    public const string TestJwtSecret = "test-secret-key-that-is-long-enough-for-hmac-sha256-signing";
+    public const string TestIssuer = "chatapp-test";
+    public const string TestAudience = "chatapp-test";
+    public static readonly Guid TestUserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        // Override JWT settings so the middleware validates tokens we create in tests
+        builder.UseSetting("Jwt:Secret", TestJwtSecret);
+        builder.UseSetting("Jwt:Issuer", TestIssuer);
+        builder.UseSetting("Jwt:Audience", TestAudience);
+        builder.UseSetting("Jwt:ExpiryMinutes", "60");
+
+        builder.ConfigureServices(services =>
+        {
+            // Replace MongoDB chat repository with in-memory
+            var repoDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IChatRepository));
+            if (repoDescriptor is not null) services.Remove(repoDescriptor);
+            services.AddSingleton<IChatRepository, InMemoryChatRepository>();
+
+            // Replace Ollama AI provider with fake
+            var aiDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IAiProvider));
+            if (aiDescriptor is not null) services.Remove(aiDescriptor);
+            services.AddSingleton<IAiProvider, FakeAiProvider>();
+
+            // Replace real IdentityService with controllable fake
+            var idDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IIdentityService));
+            if (idDescriptor is not null) services.Remove(idDescriptor);
+            services.AddSingleton<IIdentityService, FakeIdentityService>();
+        });
+    }
+
+    /// <summary>Creates an HttpClient that sends a valid JWT for the test user.</summary>
+    public HttpClient CreateAuthenticatedClient(Guid? userId = null)
+    {
+        var token = CreateToken(userId ?? TestUserId);
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    /// <summary>Creates a real, validly-signed JWT for the given user ID.</summary>
+    public string CreateToken(Guid userId)
+    {
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestJwtSecret));
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var claims = new[]
+        {
+            new Claim("sub", userId.ToString()),
+            new Claim("email", "test@example.com"),
+            new Claim(ClaimTypes.Role, "User")
+        };
+        var token = new JwtSecurityToken(
+            issuer: TestIssuer,
+            audience: TestAudience,
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(1),
+            signingCredentials: creds);
+        return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+}
+
+public class FakeIdentityService : IIdentityService
+{
+    public Task<TokenDto> RegisterAsync(RegisterDto dto, CancellationToken ct = default)
+        => Task.FromResult(new TokenDto(
+            "fake.jwt.token",
+            DateTime.UtcNow.AddHours(1),
+            AuthApiFactory.TestUserId));
+
+    public Task<TokenDto> LoginAsync(LoginDto dto, CancellationToken ct = default)
+        => Task.FromResult(new TokenDto(
+            "fake.jwt.token",
+            DateTime.UtcNow.AddHours(1),
+            AuthApiFactory.TestUserId));
+
+    public Task<TokenDto> HandleExternalCallbackAsync(string provider, string providerKey,
+        string email, string displayName, CancellationToken ct = default)
+        => Task.FromResult(new TokenDto(
+            "fake.jwt.token",
+            DateTime.UtcNow.AddHours(1),
+            AuthApiFactory.TestUserId));
+
+    public Task<UserProfileDto?> GetUserAsync(Guid userId, CancellationToken ct = default)
+        => Task.FromResult<UserProfileDto?>(new UserProfileDto(
+            AuthApiFactory.TestUserId, "test@example.com", "Test User", "Individual"));
+}
+
+public class FakeAiProvider : IAiProvider
+{
+    public async IAsyncEnumerable<string> StreamCompletionAsync(
+        IReadOnlyList<Chat.Domain.Entities.ChatMessage> history,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        yield return "Fake AI response";
+        await Task.Yield();
+    }
+}

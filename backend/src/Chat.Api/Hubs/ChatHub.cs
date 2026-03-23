@@ -1,4 +1,5 @@
 using Chat.Application.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using System.Runtime.CompilerServices;
 
@@ -7,6 +8,7 @@ namespace Chat.Api.Hubs;
 /// <summary>
 /// SignalR hub that streams AI responses token by token.
 /// </summary>
+[Authorize]
 public class ChatHub : Hub
 {
     private readonly IChatService _chatService;

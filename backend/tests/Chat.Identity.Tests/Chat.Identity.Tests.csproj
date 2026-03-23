@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Chat.Api\Chat.Api.csproj" />
+    <ProjectReference Include="..\..\src\Chat.Identity.Infrastructure\Chat.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Chat.Infrastructure\Chat.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.*" />
+  </ItemGroup>
+
+</Project>

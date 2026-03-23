@@ -165,7 +165,12 @@
 ### Phase 6: Verification ✅
 - [x] 29/29 Application tests pass
 - [x] 13/13 API tests pass (no Ollama/Docker needed)
-- [ ] Manual E2E: real LLM response streams in the browser (run manually)
+- [x] Manual E2E: real LLM response streams in browser ✅
+
+### Post-iteration fix: System prompt ✅
+- [x] `SystemPrompt` field added to `OllamaSettings` with sensible default
+- [x] `OllamaAiProvider` prepends system message (role: system) before conversation history
+- [x] `appsettings.Development.json` overrides prompt — tunable without code changes
 
 ---
 
@@ -176,7 +181,39 @@
 - **Iteration 4:** In-memory conversation history — 38 tests (domain + repo + service + controller)
 - **Iteration 5:** MongoDB persistence — 45 tests total; 7 MongoDB integration tests against real Docker DB
 - **Iteration 6:** SignalR streaming + UX polish — 4 hub integration tests + 10 frontend component tests
-- **Iteration 7:** Local LLM (Ollama) — IAiProvider abstraction, OllamaAiProvider, StreamResponseAsync — 42 backend tests
+- **Iteration 7:** Local LLM (Ollama) — IAiProvider abstraction, OllamaAiProvider, StreamResponseAsync, system prompt — 42 backend tests
+- **Iteration 8:** Identity & Authentication — JWT register/login, Google OAuth, ICurrentUser, bounded-context split (Chat.Identity.*), 25 backend tests (13 existing + 12 new)
+
+---
+
+## Iteration 8: Identity & Authentication ✅
+
+### Phase 1: Register (vertical slice) ✅
+- [x] Cycle 1.1 RED: `Register_WithValidData_ReturnsTokenDto` integration test
+- [x] Cycle 1.1 GREEN: Chat.Identity.Domain (AppUser, ExternalLogin, UserType), Chat.Identity.Application (IUserStore, ITokenGenerator, IIdentityService, DTOs), Chat.Identity.Infrastructure (JwtTokenGenerator, IdentityService, MongoUserStore, CurrentUser), AuthController POST /auth/register, Program.cs DI wiring
+- [x] Cycle 1.2: `RegisterAsync_WithDuplicateEmail_ThrowsInvalidOperationException` unit test + guard
+
+### Phase 2: Login ✅
+- [x] Cycle 2.1: `LoginAsync_WithValidCredentials_ReturnsToken` + `Login_WithValidCredentials_ReturnsTokenDto`
+- [x] Cycle 2.2: `LoginAsync_WithWrongPassword_ThrowsUnauthorizedAccessException` + `LoginAsync_WithUnknownEmail_ThrowsUnauthorizedAccessException`
+
+### Phase 3: Protect endpoints ✅
+- [x] Cycle 3.1 RED: `Unauthenticated_SendMessage_Returns401`
+- [x] Cycle 3.1 GREEN: `[Authorize]` on ChatController + ChatHub; `TestAuthHandler` in ChatApiFactory keeps 13/13 existing tests green
+
+### Phase 4: ICurrentUser + GET /auth/me ✅
+- [x] Cycle 4.1: `GetMe_Authenticated_ReturnsUserProfile` + `GetMe_Unauthenticated_Returns401` → `ICurrentUser`, `CurrentUser` (via IHttpContextAccessor), GET /auth/me on AuthController, `AuthApiFactory.CreateAuthenticatedClient()`
+
+### Phase 5: Google OAuth ✅
+- [x] Cycle 5.1: `HandleExternalCallbackAsync_NewUser_CreatesUserAndReturnsToken`
+- [x] Cycle 5.2: `HandleExternalCallbackAsync_ExistingUser_ReturnsTokenWithoutCreating`
+- [x] GET /auth/google + GET /auth/callback/google on AuthController
+- [x] ExternalCookie scheme + AddGoogle in Program.cs
+
+### Verification ✅
+- [x] 13/13 Chat.Api.Tests pass (existing tests unbroken)
+- [x] 12/12 Chat.Identity.Tests pass (5 integration + 7 unit)
+- [x] Build: 0 errors, 0 warnings
 
 ---
 
@@ -204,3 +241,11 @@
 | 2026-03-18 | OllamaSharp 4.0.22 over raw HttpClient | Handles NDJSON streaming protocol; keeps OllamaAiProvider focused on mapping, not HTTP parsing |
 | 2026-03-18 | FakeAiProvider in ChatApiFactory | All API/hub integration tests run offline with no Ollama dependency |
 | 2026-03-18 | Model name in appsettings.Development.json | Switching models (gemma2:2b → phi3:mini) requires zero code changes |
+| 2026-03-18 | SystemPrompt in OllamaSettings (Infrastructure) | Controls model behaviour; tunable via appsettings without recompile; not a business rule so stays in Infrastructure |
+| 2026-03-18 | System message prepended before conversation history | Models respect standing instructions when given as first message with role=system |
+| 2026-03-23 | Chat.Identity.* bounded context separate from Chat.* | Identity and messaging share only Guid UserId; prevents model contamination across contexts |
+| 2026-03-23 | MapInboundClaims = false in JWT validation | Keeps `sub` claim as `"sub"` throughout pipeline; consistent with JwtTokenGenerator and CurrentUser |
+| 2026-03-23 | TestAuthHandler in ChatApiFactory for existing tests | Auto-authenticates all requests after [Authorize] added; 13 existing tests stay green without issuing real JWTs |
+| 2026-03-23 | AuthApiFactory with real test JWT secret | New identity tests use real JWT validation path; CreateToken() helper issues verifiable tokens |
+| 2026-03-23 | ExternalCookie scheme as SignInScheme for Google OAuth | Completes OAuth round-trip before AuthController reads principal; avoids default scheme conflict with JWT |
+| 2026-03-23 | ICurrentUser interface in Application layer | Hides IHttpContextAccessor from domain/app; Infrastructure provides CurrentUser backed by HttpContext |
