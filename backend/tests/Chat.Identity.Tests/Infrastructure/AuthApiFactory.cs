@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using Chat.Identity.Tests.Services;
 
 namespace Chat.Identity.Tests.Infrastructure;
 
@@ -51,10 +52,20 @@ public class AuthApiFactory : WebApplicationFactory<Program>
             var idDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IIdentityService));
             if (idDescriptor is not null) services.Remove(idDescriptor);
             services.AddSingleton<IIdentityService, FakeIdentityService>();
+
+            // Replace MongoRoleStore with in-memory FakeRoleStore seeded with default roles.
+            // Real PermissionService runs against this — no MongoDB needed for RBAC tests.
+            var roleStoreDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IRoleStore));
+            if (roleStoreDescriptor is not null) services.Remove(roleStoreDescriptor);
+            var fakeRoleStore = new FakeRoleStore();
+            fakeRoleStore.Roles.Add(new RoleInfo("User",     ["conversation:create", "conversation:read"]));
+            fakeRoleStore.Roles.Add(new RoleInfo("OrgAdmin", ["conversation:create", "conversation:read", "conversation:share", "user:invite"]));
+            fakeRoleStore.Roles.Add(new RoleInfo("Admin",    ["*"]));
+            services.AddSingleton<IRoleStore>(fakeRoleStore);
         });
     }
 
-    /// <summary>Creates an HttpClient that sends a valid JWT for the test user.</summary>
+    /// <summary>Creates an HttpClient that sends a valid JWT for the test user (role: User).</summary>
     public HttpClient CreateAuthenticatedClient(Guid? userId = null)
     {
         var token = CreateToken(userId ?? TestUserId);
@@ -63,8 +74,20 @@ public class AuthApiFactory : WebApplicationFactory<Program>
         return client;
     }
 
-    /// <summary>Creates a real, validly-signed JWT for the given user ID.</summary>
-    public string CreateToken(Guid userId)
+    /// <summary>Creates an HttpClient with a JWT for the given user and role.</summary>
+    public HttpClient CreateAuthenticatedClientWithRole(Guid userId, string role)
+    {
+        var token = CreateTokenWithRole(userId, role);
+        var client = CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    /// <summary>Creates a real, validly-signed JWT for the given user ID (role: User).</summary>
+    public string CreateToken(Guid userId) => CreateTokenWithRole(userId, "User");
+
+    /// <summary>Creates a real, validly-signed JWT for the given user ID and role.</summary>
+    public string CreateTokenWithRole(Guid userId, string role)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(TestJwtSecret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -72,7 +95,7 @@ public class AuthApiFactory : WebApplicationFactory<Program>
         {
             new Claim("sub", userId.ToString()),
             new Claim("email", "test@example.com"),
-            new Claim(ClaimTypes.Role, "User")
+            new Claim(ClaimTypes.Role, role)
         };
         var token = new JwtSecurityToken(
             issuer: TestIssuer,

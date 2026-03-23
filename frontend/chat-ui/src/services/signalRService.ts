@@ -1,4 +1,5 @@
 import * as signalR from '@microsoft/signalr'
+import { authService } from './authService'
 
 export interface StreamCallbacks {
   onConversationId: (id: string) => void
@@ -13,7 +14,9 @@ class SignalRService {
   private get connection(): signalR.HubConnection {
     if (!this._connection) {
       this._connection = new signalR.HubConnectionBuilder()
-        .withUrl('/chatHub')
+        .withUrl('/chatHub', {
+          accessTokenFactory: () => authService.getToken() ?? '',
+        })
         .withAutomaticReconnect()
         .build()
     }

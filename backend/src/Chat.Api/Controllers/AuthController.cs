@@ -104,4 +104,11 @@ public class AuthController : ControllerBase
         var profile = await _identityService.GetUserAsync(currentUser.UserId, ct);
         return profile is null ? NotFound() : Ok(profile);
     }
+
+    /// <summary>Probe endpoint for AdminOnly policy integration tests. Returns 200 for Admin, 403 otherwise.</summary>
+    [HttpGet("admin-probe")]
+    [Authorize(Policy = "AdminOnly")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public IActionResult AdminProbe() => Ok();
 }

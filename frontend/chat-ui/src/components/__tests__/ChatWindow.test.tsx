@@ -150,4 +150,18 @@ describe('ChatWindow', () => {
       expect(screen.getByRole('alert')).toHaveTextContent('SignalR connection lost'),
     )
   })
+
+  // ── Cycle FA-CW1 — logout button ─────────────────────────────────────
+
+  it('renders a logout button', () => {
+    render(<ChatWindow onLogout={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument()
+  })
+
+  it('calls onLogout when logout button is clicked', async () => {
+    const onLogout = vi.fn()
+    render(<ChatWindow onLogout={onLogout} />)
+    await userEvent.click(screen.getByRole('button', { name: /logout/i }))
+    expect(onLogout).toHaveBeenCalledOnce()
+  })
 })

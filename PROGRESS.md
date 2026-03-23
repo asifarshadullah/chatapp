@@ -217,6 +217,70 @@
 
 ---
 
+---
+
+## Iteration 9: Frontend Authentication + Backend Authorization ✅
+
+### Frontend Track ✅
+
+#### FA1: authService TDD ✅
+- [x] FA1.1 `login_withValidCredentials_storesTokenAndReturnsIt` → `authService.login()`, localStorage
+- [x] FA1.2 `register_storesTokenAndReturnsIt` → `authService.register()`
+- [x] FA1.3 `logout_clearsToken` → `authService.logout()`
+- [x] FA1.4 `isAuthenticated_whenTokenExists_returnsTrue` → `authService.isAuthenticated()`
+
+#### FA2: LoginPage component TDD ✅
+- [x] FA2.1 `renders_emailPasswordInputsAndSubmitButton` → `LoginPage.tsx` MUI form
+- [x] FA2.2 `submit_login_callsAuthService_andCallsOnLogin`
+- [x] FA2.3 `submit_register_callsAuthServiceRegister`
+- [x] FA2.4 `whenAuthFails_showsErrorMessage` → `<Alert>` on catch
+
+#### FA3: App conditional routing TDD ✅
+- [x] FA3.1 `whenUnauthenticated_showsLoginPage` → App.tsx with `isAuthenticated` state
+- [x] FA3.2 `whenAuthenticated_showsChatWindow`
+- [x] FA3.3 `afterSuccessfulLogin_showsChatWindow` → `onLogin` callback sets state
+
+#### FA4: Token propagation ✅
+- [x] `signalRService.ts` — `accessTokenFactory: () => authService.getToken()` at negotiate time
+- [x] `chatApi.ts` — Authorization Bearer header on all REST requests
+
+### Backend Track ✅
+
+#### Phase 1: IPermissionService unit tests ✅
+- [x] 1.1 `IsAuthorizedAsync_AdminRole_ReturnsTrue_ForAnyPermission` → IPermissionService, IRoleStore, RoleInfo, PermissionService (wildcard `"*"`)
+- [x] 1.2 `IsAuthorizedAsync_UserRole_ReturnsTrue_ForGrantedPermission`
+- [x] 1.3 `IsAuthorizedAsync_UserRole_ReturnsFalse_ForUnlistedPermission`
+- [x] 1.4 `IsAuthorizedAsync_UnknownRole_ReturnsFalse`
+
+#### Phase 2: MongoRoleStore + RoleSeeder ✅
+- [x] `RoleDocument.cs` — BSON model with `ToRoleInfo()` mapper
+- [x] `MongoRoleStore.cs` — queries `roles` collection
+- [x] `RoleSeeder.cs` — seeds User/OrgAdmin/Admin on empty collection
+- [x] `PermissionService` — 5-min TTL cache via IMemoryCache
+- [x] `Program.cs` — registers IRoleStore, IPermissionService, handler, seeder call
+
+#### Phase 3: Policy wiring integration tests ✅
+- [x] `PermissionRequirement` + `PermissionRequirementHandler` — delegates to IPermissionService
+- [x] Named policies: CanChat, CanShareConversation, CanInviteUsers, AdminOnly
+- [x] `ChatHub` — `[Authorize(Policy = "CanChat")]`
+- [x] `AuthController` — `GET /auth/admin-probe [Authorize(Policy = "AdminOnly")]`
+- [x] `AuthApiFactory` — `CreateTokenWithRole()`, seeded `FakeRoleStore`
+- [x] `AuthorizationEndpointTests` — AdminOnly_WithUserRole_Returns403, AdminOnly_WithAdminRole_Returns200, AdminOnly_WithoutToken_Returns401
+- [x] `ChatApiFactory` — `AlwaysAllowPermissionService` keeps 13 existing tests green
+
+#### Phase 4: Feature gating ✅
+- [x] `Chat.Billing.Application` — `IPlanFeatureService` interface
+- [x] `Chat.Billing.Infrastructure` — `StubPlanFeatureService` (always enables all)
+- [x] `ChatHub` — feature guard before streaming (`throw HubException` if disabled)
+- [x] `ChatHubFeatureTests` — Cycle 4.1 (disabled→HubException), Cycle 4.2 (enabled→streams)
+
+### Verification ✅
+- [x] 76/76 backend tests pass (29 Application + 15 Api + 13 Infrastructure + 19 Identity)
+- [x] 43/43 frontend tests pass
+- [x] Build: 0 errors, 0 warnings
+
+---
+
 ## Decisions log
 | Date | Decision | Reason |
 |------|----------|--------|
@@ -249,3 +313,11 @@
 | 2026-03-23 | AuthApiFactory with real test JWT secret | New identity tests use real JWT validation path; CreateToken() helper issues verifiable tokens |
 | 2026-03-23 | ExternalCookie scheme as SignInScheme for Google OAuth | Completes OAuth round-trip before AuthController reads principal; avoids default scheme conflict with JWT |
 | 2026-03-23 | ICurrentUser interface in Application layer | Hides IHttpContextAccessor from domain/app; Infrastructure provides CurrentUser backed by HttpContext |
+| 2026-03-23 | RoleInfo record in Application layer, RoleDocument in Infrastructure | Keeps Application free of BSON/MongoDB types; RoleDocument.ToRoleInfo() maps at the boundary |
+| 2026-03-23 | PermissionService reads ICurrentUser.Role (from JWT) — no extra DB call | Role already in token; avoids per-request DB round-trip to look up user's role |
+| 2026-03-23 | 5-min TTL cache in PermissionService | Role lookups are read-heavy and rarely change; cache cuts DB load without staleness risk |
+| 2026-03-23 | AlwaysAllowPermissionService in ChatApiFactory | Keeps 13 existing hub/controller tests green after [Authorize(Policy="CanChat")] replaced bare [Authorize] |
+| 2026-03-23 | IPlanFeatureService in Chat.Billing.Application (separate context) | Feature gating belongs to billing, not identity or chat; context boundary enforced by project dependency |
+| 2026-03-23 | StubPlanFeatureService enables all features | No billing logic yet; stub ships always-on behaviour until real billing plans are built |
+| 2026-03-23 | authService stores JWT in localStorage | Simplest persistence across page reloads; `accessTokenFactory` reads from it at SignalR negotiate time |
+| 2026-03-23 | State-based routing in App.tsx (no react-router) | App has only two views (login / chat); react-router would be over-engineering for this scope |

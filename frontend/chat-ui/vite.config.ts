@@ -10,6 +10,10 @@ export default defineConfig({
         target: 'http://localhost:5064',
         changeOrigin: true,
       },
+      '/auth': {
+        target: 'http://localhost:5064',
+        changeOrigin: true,
+      },
       '/chatHub': {
         target: 'http://localhost:5064',
         changeOrigin: true,

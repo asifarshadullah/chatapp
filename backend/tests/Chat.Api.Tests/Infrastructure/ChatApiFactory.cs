@@ -3,8 +3,10 @@ using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Chat.Application.Interfaces;
 using Chat.Domain.Entities;
+using Chat.Identity.Application.Interfaces;
 using Chat.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,8 +44,26 @@ public class ChatApiFactory : WebApplicationFactory<Program>
             services.AddAuthentication("TestScheme")
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
                     "TestScheme", _ => { });
+
+            // Replace real PermissionService with a stub that always allows.
+            // Keeps existing Chat.Api.Tests green after [Authorize(Policy="CanChat")]
+            // replaces bare [Authorize] on ChatHub.
+            var permSvcDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPermissionService));
+            if (permSvcDescriptor is not null)
+                services.Remove(permSvcDescriptor);
+            services.AddSingleton<IPermissionService, AlwaysAllowPermissionService>();
         });
     }
+}
+
+/// <summary>
+/// Permission service stub that grants every permission.
+/// Used in ChatApiFactory to keep existing tests green under policy-based auth.
+/// </summary>
+public class AlwaysAllowPermissionService : IPermissionService
+{
+    public Task<bool> IsAuthorizedAsync(Guid userId, string permission, CancellationToken ct = default)
+        => Task.FromResult(true);
 }
 
 /// <summary>

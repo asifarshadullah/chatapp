@@ -11,6 +11,8 @@
     <ProjectReference Include="..\Chat.Infrastructure\Chat.Infrastructure.csproj" />
     <ProjectReference Include="..\Chat.Identity.Application\Chat.Identity.Application.csproj" />
     <ProjectReference Include="..\Chat.Identity.Infrastructure\Chat.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\Chat.Billing.Application\Chat.Billing.Application.csproj" />
+    <ProjectReference Include="..\Chat.Billing.Infrastructure\Chat.Billing.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

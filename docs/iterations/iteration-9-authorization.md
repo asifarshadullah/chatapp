@@ -1,47 +1,39 @@
-# Iteration 9: Authorization & Role Management
+# Iteration 9: Frontend Authentication + Backend Authorization
 
 ## Goal
-Endpoints and features are protected by role. Feature availability is gated by subscription
-plan. Roles and their permissions are stored in MongoDB — adding a new role or changing what
-a role can do requires a database update, not a code change or redeployment.
-
-## Context
-Iteration 8 established who the user is (authentication). This iteration establishes what the
-user can do (authorization). Two orthogonal systems are introduced:
-
-1. **RBAC (Role-Based Access Control):** A user's role (User, OrgAdmin, Admin) determines
-   which operations they can perform (create, share, delete). Stored in DB — dynamic.
-
-2. **Feature Gating (Plan-Based):** A user's subscription plan (Free, Pro, Enterprise)
-   determines which product features are available to them. Checked at runtime via
-   IPlanFeatureService. The actual plan and subscription entities belong to Iteration 10
-   (Billing) — this iteration introduces the interface and a stub implementation.
-
-These two concerns are kept strictly separate. A Pro plan user with a "User" role can access
-Pro features but cannot perform admin operations. Do not conflate them.
+1. **Frontend authentication** — login/register UI, JWT token storage, pass token to SignalR and REST calls. Fixes "Failed to connect to chat server" (401 on hub negotiate).
+2. **Backend RBAC** — policy-based authorization backed by MongoDB `roles` collection. Dynamic: changing permissions = DB update, no redeploy.
+3. **Feature gating stub** — `IPlanFeatureService` returns true for all features (Iteration 10 replaces with real billing).
 
 ---
 
-## Architecture overview
+## Context
+Iteration 8 established *who* the user is (authentication). This iteration establishes *what* they can do (authorization) and gives users a way to authenticate from the browser.
+
+**Two orthogonal backend systems (kept strictly separate):**
+- **RBAC:** role (User/OrgAdmin/Admin) → permission strings (`conversation:create`, etc.) stored in MongoDB
+- **Feature Gating:** plan tier → feature availability via `IPlanFeatureService` (stub here, real in Iteration 10)
+
+---
+
+## Architecture
 
 ```
-Incoming request (JWT validated)
-  └─ [Authorize(Policy = "CanShareConversation")]
-       └─ PermissionRequirementHandler
-            └─ IPermissionService.IsAuthorizedAsync(userId, "conversation:share")
-                 └─ PermissionService → roles collection (MongoDB) + in-memory cache
-
-ChatHub.SendMessage
-  └─ IPlanFeatureService.IsFeatureEnabled(userId, Feature.Chat)
-       └─ checks users active plan tier (stub in Iter 9, real in Iter 10)
+Browser
+  └─ LoginPage → authService → POST /auth/login → JWT stored in localStorage
+  └─ ChatWindow → signalRService (accessTokenFactory reads JWT) → /chatHub [Authorize(Policy="CanChat")]
+                                                                      └─ PermissionRequirementHandler
+                                                                           └─ IPermissionService
+                                                                                └─ IRoleStore (MongoDB roles collection, 5-min cache)
 ```
 
 **Permission model:**
 ```
-Role (stored in MongoDB)
+Role (stored in MongoDB roles collection)
   └─ has many permission strings  e.g. "conversation:create", "conversation:share"
+  └─ Admin role has wildcard "*" (grants all permissions)
 
-Plan tier (checked via IPlanFeatureService)
+Plan tier (IPlanFeatureService stub → always true until Iter 10)
   └─ unlocks Feature enum values  e.g. Feature.Chat, Feature.DocumentUpload
 ```
 
@@ -50,250 +42,209 @@ Plan tier (checked via IPlanFeatureService)
 ## New structure
 
 ```
+frontend/chat-ui/src/
+  services/
+    authService.ts            login/register/logout/getToken/isAuthenticated
+  components/
+    LoginPage.tsx             email+password form with Login/Register tab toggle
+
 Chat.Identity.Application/
   Interfaces/
-    IPermissionService.cs         IsAuthorizedAsync(Guid userId, string permission) → bool
+    IPermissionService.cs     IsAuthorizedAsync(Guid userId, string permission) → bool
+    IRoleStore.cs             GetByNameAsync(string name) → RoleDocument?
 
 Chat.Identity.Infrastructure/
-  Services/
-    PermissionService.cs          Queries roles collection + MemoryCache (5-min TTL)
   Data/
-    RoleDocument.cs               Name (string), Permissions (List<string>)
+    RoleDocument.cs           Name (string, BsonId), Permissions (List<string>)
+    RoleSeeder.cs             Seeds default User/OrgAdmin/Admin docs if collection empty
+  Stores/
+    MongoRoleStore.cs         Implements IRoleStore against roles collection
+  Services/
+    PermissionService.cs      Reads ICurrentUser.Role → looks up role → checks permission + wildcard + 5-min cache
   Authorization/
     PermissionRequirement.cs      IAuthorizationRequirement with Permission string
-    PermissionRequirementHandler.cs  IAuthorizationHandler — calls IPermissionService
+    PermissionRequirementHandler.cs  AuthorizationHandler — calls IPermissionService
 
 Chat.Billing.Application/            (stub — full implementation in Iteration 10)
-  Interfaces/
-    IPlanFeatureService.cs        IsFeatureEnabled(Guid userId, Feature feature) → bool
   Enums/
-    Feature.cs                    Chat, DocumentUpload, SharedConversations, CustomModels
+    Feature.cs                Chat, DocumentUpload, SharedConversations, CustomModels
+  Interfaces/
+    IPlanFeatureService.cs    IsFeatureEnabled(Guid userId, Feature feature) → bool
 
 Chat.Billing.Infrastructure/
   Services/
-    StubPlanFeatureService.cs     Returns true for all features (replaced in Iter 10)
+    StubPlanFeatureService.cs Returns true for all features
 ```
 
----
-
-## Phase 1: Permission model in MongoDB
-
-### Task 1.1: RoleDocument
-**File:** `backend/src/Chat.Identity.Infrastructure/Data/RoleDocument.cs`
-```csharp
-using MongoDB.Bson.Serialization.Attributes;
-using MongoDB.Bson;
-
-namespace Chat.Identity.Infrastructure.Data;
-
-internal class RoleDocument
-{
-    [BsonId]
-    [BsonRepresentation(BsonType.String)]
-    public string Name { get; set; } = string.Empty;
-
-    public List<string> Permissions { get; set; } = new();
-}
-```
-
-### Task 1.2: Seed default roles (run once on startup)
+**Default role seed documents:**
 ```json
-// roles collection — default seed documents
 { "name": "User",     "permissions": ["conversation:create", "conversation:read"] }
 { "name": "OrgAdmin", "permissions": ["conversation:create", "conversation:read", "conversation:share", "user:invite"] }
 { "name": "Admin",    "permissions": ["*"] }
 ```
 
-Adding a new role: insert a document. Granting a new permission: push to the array.
-Zero code change. Zero redeployment.
+---
+
+## Frontend Track — Authentication UI
+
+### Phase 1: authService (TDD)
+
+**Test file:** `frontend/chat-ui/src/services/__tests__/authService.test.ts`
+
+- **Cycle FA1.1:** RED `login_withValidCredentials_storesTokenAndReturnsIt`
+  → GREEN: `authService.ts` — `login()` POSTs `/auth/login`, stores token in `localStorage`, returns `TokenDto`
+
+- **Cycle FA1.2:** RED `register_storesTokenAndReturnsIt`
+  → GREEN: `register()` POSTs `/auth/register`, same storage
+
+- **Cycle FA1.3:** RED `logout_clearsToken`
+  → GREEN: `logout()` clears `localStorage`
+
+- **Cycle FA1.4:** RED `isAuthenticated_whenTokenExists_returnsTrue`
+  → GREEN: `isAuthenticated()` returns `!!getToken()`
+
+### Phase 2: LoginPage component (TDD)
+
+**Test file:** `frontend/chat-ui/src/components/__tests__/LoginPage.test.tsx`
+
+- **Cycle FA2.1:** RED `renders_emailPasswordInputsAndSubmitButton`
+  → GREEN: `LoginPage.tsx` with MUI form, email/password fields, Login/Register tab toggle
+
+- **Cycle FA2.2:** RED `submit_login_callsAuthService_andCallsOnLogin`
+  → GREEN: `handleSubmit` calls `authService.login`, then `props.onLogin()`
+
+- **Cycle FA2.3:** RED `submit_register_callsAuthServiceRegister`
+  → GREEN: register tab calls `authService.register`, then `props.onLogin()`
+
+- **Cycle FA2.4:** RED `whenAuthFails_showsErrorMessage`
+  → GREEN: try/catch sets error state → `<Alert>` rendered
+
+### Phase 3: App conditional routing (TDD)
+
+**Test file:** `frontend/chat-ui/src/components/__tests__/App.test.tsx`
+
+- **Cycle FA3.1:** RED `whenUnauthenticated_showsLoginPage`
+  → GREEN: `App.tsx` checks `authService.isAuthenticated()`, renders `<LoginPage>` when false
+
+- **Cycle FA3.2:** RED `whenAuthenticated_showsChatWindow`
+  → GREEN: renders `<ChatWindow>` when authenticated
+
+- **Cycle FA3.3:** RED `afterSuccessfulLogin_showsChatWindow`
+  → GREEN: `onLogin` callback calls `setIsAuthenticated(true)` transitioning to chat view
+
+### Phase 4: Token propagation
+
+Small code changes; covered by FA3 tests + manual e2e verification.
+
+- `signalRService.ts` — add `accessTokenFactory: () => authService.getToken() ?? ''` to `.withUrl()`. Token read at negotiate time (not at connection build time), so always picks up the current `localStorage` value.
+- `chatApi.ts` — add `Authorization: Bearer ${token}` header to all requests. Update existing test to expect the header.
 
 ---
 
-## Phase 2: IPermissionService (TDD)
+## Backend Track — RBAC + Feature Gating
 
-**File:** `backend/src/Chat.Identity.Application/Interfaces/IPermissionService.cs`
-```csharp
-namespace Chat.Identity.Application.Interfaces;
+### Phase 1: IPermissionService (TDD)
 
-public interface IPermissionService
-{
-    /// <summary>
-    /// Returns true if the user's role grants the given permission string.
-    /// Wildcard "*" on Admin role grants all permissions.
-    /// </summary>
-    Task<bool> IsAuthorizedAsync(Guid userId, string permission, CancellationToken ct = default);
-}
-```
+**Test file:** `backend/tests/Chat.Identity.Tests/Services/PermissionServiceTests.cs`
+**Test double:** `FakeRoleStore : IRoleStore` (nested, in-memory — same pattern as `FakeUserStore`)
+**Design:** `PermissionService` reads `ICurrentUser.Role` (already in JWT claim) to look up role doc. No extra DB call. `userId` param kept for future audit use.
 
-**Test cycles:**
-**File:** `backend/tests/Chat.Identity.Tests/Services/PermissionServiceTests.cs`
+- **Cycle 1.1:** RED `IsAuthorizedAsync_AdminRole_ReturnsTrue_ForAnyPermission`
+  → GREEN: `IPermissionService`, `IRoleStore`, `RoleDocument`, `PermissionService` (wildcard `"*"`)
 
-- **Cycle 2.1:** RED `IsAuthorizedAsync_AdminRole_ReturnsTrue_ForAnyPermission`
-  → GREEN: Admin role has "*" wildcard — return true for all
+- **Cycle 1.2:** RED `IsAuthorizedAsync_UserRole_ReturnsTrue_ForGrantedPermission`
+  → GREEN: look up role doc, check `Contains(permission)`
 
-- **Cycle 2.2:** RED `IsAuthorizedAsync_UserRole_ReturnsTrue_ForConversationCreate`
-  → GREEN: look up role from DB/cache, check permission list
+- **Cycle 1.3:** RED `IsAuthorizedAsync_UserRole_ReturnsFalse_ForUnlistedPermission`
+  → GREEN: return false when not in list and no wildcard
 
-- **Cycle 2.3:** RED `IsAuthorizedAsync_UserRole_ReturnsFalse_ForConversationShare`
-  → GREEN: "conversation:share" not in User role permissions list
+- **Cycle 1.4:** RED `IsAuthorizedAsync_UnknownRole_ReturnsFalse`
+  → GREEN: null-guard on role document lookup
 
-- **Cycle 2.4:** RED `IsAuthorizedAsync_UsesCache_DoesNotHitDbOnSecondCall`
-  → GREEN: MemoryCache with 5-minute TTL — second call returns cached result
+### Phase 2: MongoRoleStore + seeder
 
-- **Cycle 2.5:** RED `IsAuthorizedAsync_CacheInvalidated_ReflectsUpdatedPermissions`
-  → GREEN: force cache expiry → fresh DB read picks up the updated role document
+Thin infrastructure — same pattern as `MongoUserStore`. Integration test in Phase 3 is the test vehicle.
+- `MongoRoleStore.cs` — implements `IRoleStore`, queries `roles` collection
+- `RoleSeeder.cs` — inserts default docs if collection empty, called at startup
+- `Program.cs` — register `IRoleStore → MongoRoleStore`, `AddMemoryCache()`, call seeder
+- Add 5-min TTL cache to `PermissionService` (internal optimization, no dedicated test)
 
----
+### Phase 3: Policy wiring (TDD — integration tests drive handler + policies)
 
-## Phase 3: Policy-based Authorization wiring
+**Test file:** `backend/tests/Chat.Identity.Tests/Integration/AuthorizationEndpointTests.cs`
+**Factory:** `AuthApiFactory` — add `CreateTokenWithRole(Guid userId, string role)` helper; replace `IRoleStore` with seeded `FakeRoleStore` (real `PermissionService` runs, no MongoDB needed).
+**ChatApiFactory fix (not a cycle):** Add `AlwaysAllowPermissionService` so 13 existing tests stay green after `[Authorize(Policy="CanChat")]` replaces bare `[Authorize]` on `ChatHub`.
 
-### Task 3.1: PermissionRequirement + Handler
-**File:** `backend/src/Chat.Identity.Infrastructure/Authorization/PermissionRequirementHandler.cs`
+- **Cycle 3.1:** RED `CanChat_UserRoleWithPermission_HubConnectionSucceeds`
+  → GREEN: `PermissionRequirement`, `PermissionRequirementHandler`, named policies in `Program.cs`, `[Authorize(Policy="CanChat")]` on `ChatHub`
+  ```
+  Policies registered:
+    "CanChat"              → conversation:create
+    "CanShareConversation" → conversation:share
+    "CanInviteUsers"       → user:invite
+    "AdminOnly"            → *
+  ```
 
-```csharp
-using Chat.Identity.Application.Interfaces;
-using Microsoft.AspNetCore.Authorization;
+- **Cycle 3.2:** RED `CanChat_UserRoleWithoutPermission_Returns403`
+  → GREEN: `context.Fail()` in handler when permission not granted
 
-namespace Chat.Identity.Infrastructure.Authorization;
+- **Cycle 3.3:** RED `AdminOnly_WithUserRole_Returns403`
+  → GREEN: `GET /auth/admin-probe [Authorize(Policy="AdminOnly")]` added to `AuthController`
 
-public class PermissionRequirement(string permission) : IAuthorizationRequirement
-{
-    public string Permission { get; } = permission;
-}
+- **Cycle 3.4:** RED `AdminOnly_WithAdminRole_Returns200`
+  → GREEN: wildcard logic from Phase 1 grants access
 
-public class PermissionRequirementHandler(IPermissionService permissionService, ICurrentUser currentUser)
-    : AuthorizationHandler<PermissionRequirement>
-{
-    protected override async Task HandleRequirementAsync(
-        AuthorizationHandlerContext context, PermissionRequirement requirement)
-    {
-        if (!currentUser.IsAuthenticated)
-        {
-            context.Fail();
-            return;
-        }
+### Phase 4: Feature gating (TDD)
 
-        var allowed = await permissionService.IsAuthorizedAsync(currentUser.UserId, requirement.Permission);
-        if (allowed)
-            context.Succeed(requirement);
-        else
-            context.Fail();
-    }
-}
-```
+**Test file:** `backend/tests/Chat.Api.Tests/Hubs/ChatHubFeatureTests.cs`
 
-### Task 3.2: Register policies in Program.cs
-```csharp
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("CanChat",              p => p.AddRequirements(new PermissionRequirement("conversation:create")));
-    options.AddPolicy("CanShareConversation", p => p.AddRequirements(new PermissionRequirement("conversation:share")));
-    options.AddPolicy("CanInviteUsers",       p => p.AddRequirements(new PermissionRequirement("user:invite")));
-    options.AddPolicy("AdminOnly",            p => p.AddRequirements(new PermissionRequirement("*")));
-});
-
-builder.Services.AddScoped<IAuthorizationHandler, PermissionRequirementHandler>();
-builder.Services.AddScoped<IPermissionService, PermissionService>();
-```
-
-### Task 3.3: Apply policies to endpoints
-```csharp
-// ChatHub — all chat requires CanChat permission
-[Authorize(Policy = "CanChat")]
-public class ChatHub : Hub { ... }
-
-// Future sharing endpoint
-[Authorize(Policy = "CanShareConversation")]
-public async Task<IActionResult> ShareConversation(...) { ... }
-```
-
----
-
-## Phase 4: Feature Gating — IPlanFeatureService
-
-### Task 4.1: Feature enum + interface (Billing.Application)
-```csharp
-public enum Feature
-{
-    Chat,                 // basic messaging — all plans
-    DocumentUpload,       // Pro + Enterprise
-    SharedConversations,  // Pro + Enterprise
-    CustomModels,         // Enterprise only
-}
-
-public interface IPlanFeatureService
-{
-    /// <summary>Returns true if the user's current plan includes the given feature.</summary>
-    Task<bool> IsFeatureEnabled(Guid userId, Feature feature, CancellationToken ct = default);
-}
-```
-
-### Task 4.2: StubPlanFeatureService (replaced in Iteration 10)
-```csharp
-/// <summary>Stub returns true for all features until Billing is implemented.</summary>
-public class StubPlanFeatureService : IPlanFeatureService
-{
-    public Task<bool> IsFeatureEnabled(Guid userId, Feature feature, CancellationToken ct = default)
-        => Task.FromResult(true);
-}
-```
-
-### Task 4.3: Use in ChatService / ChatHub
-```csharp
-// In ChatHub.SendMessage (or ChatService) — guard before processing
-if (!await _planFeatureService.IsFeatureEnabled(currentUser.UserId, Feature.Chat, ct))
-    throw new HubException("Your current plan does not include chat access.");
-```
-
-**TDD cycles for feature gating:**
 - **Cycle 4.1:** RED `SendMessage_WhenChatFeatureDisabled_ThrowsHubException`
-  → GREEN: inject IPlanFeatureService, check Feature.Chat before processing
+  → GREEN: `Feature` enum, `IPlanFeatureService`, `StubPlanFeatureService`, `ChatHub` injects `IPlanFeatureService` + `ICurrentUser`, guards `Feature.Chat` before processing
 
-- **Cycle 4.2:** RED `SendMessage_WhenChatFeatureEnabled_Proceeds`
-  → GREEN: passes from Cycle 4.1 impl (stub returns true)
+- **Cycle 4.2:** RED `SendMessage_WhenChatFeatureEnabled_StreamsResponse`
+  → GREEN: passes from 4.1 (stub returns true); confirms happy path
 
 ---
 
-## Phase 5: API integration tests update
+## Test double strategy
 
-- **Cycle 5.1:** RED `AdminEndpoint_WithUserRole_Returns403`
-  → GREEN: [Authorize(Policy = "AdminOnly")] endpoint + test with User role JWT
-
-- **Cycle 5.2:** Verify all 42+ existing tests pass (permissions pass through for existing test users)
+| Context | IPermissionService | IRoleStore | IPlanFeatureService |
+|---|---|---|---|
+| `PermissionServiceTests` | Real `PermissionService` | `FakeRoleStore` (in-file) | — |
+| `AuthApiFactory` | Real `PermissionService` | `FakeRoleStore` (seeded) | — |
+| `ChatApiFactory` | `AlwaysAllowPermissionService` | — | `StubPlanFeatureService` |
+| `ChatHubFeatureTests` (4.1) | `AlwaysAllowPermissionService` | — | `AlwaysDisablePlanFeatureService` |
 
 ---
 
 ## Acceptance criteria
-1. User role: can create conversations, cannot share or admin
-2. OrgAdmin role: can share conversations
-3. Admin role: can do everything
-4. Changing User role permissions in `roles` collection takes effect within 5 minutes (cache TTL)
-5. Adding a brand-new role in DB (no code change) — endpoint protected by that role works immediately after cache expiry
-6. Feature.Chat disabled → 403/HubException before any AI call is made
-7. All 42+ existing tests still pass
+1. Browser shows login/register form when unauthenticated
+2. After login, chat UI loads and SignalR connects successfully
+3. User role: can chat, cannot share or admin
+4. OrgAdmin role: can share conversations
+5. Admin role: can do everything (wildcard)
+6. Changing User role permissions in `roles` collection takes effect within 5 minutes (cache TTL)
+7. `Feature.Chat` disabled → HubException before any AI call
+8. All existing tests still pass (13 API + 12 identity)
 
 ## Verification commands
 ```bash
 dotnet test backend/ChatApp.sln --verbosity normal
-# Manual: change User role to remove "conversation:create" in MongoDB
-# Send message as User → should get 403 within 5 minutes
-# Change back → works again
+cd frontend/chat-ui && npm test
+# Manual: login in browser → chat works end-to-end
+# Manual: remove conversation:create from User role in MongoDB → 403 within 5 min
 ```
-
-## What you will learn
-- Policy-based authorization vs attribute-role authorization — when each is right
-- `IAuthorizationRequirement` + `IAuthorizationHandler` — how ASP.NET Core wires them
-- RBAC vs Feature Gating — two orthogonal concerns, never conflated
-- In-memory caching (IMemoryCache) for DB-backed permissions — the TTL trade-off
-- Wildcard permissions pattern ("*" for Admin)
-- Stub implementations — IPlanFeatureService returns true until Iteration 10 replaces it
 
 ## Decisions log
 | Decision | Reason |
 |---|---|
-| Policy-based over [Authorize(Roles = "X")] | Roles stored in DB; changing permissions = DB update, no redeploy |
-| Permissions as strings ("conversation:create") | Human-readable, extensible, easy to add new permissions without enum changes |
-| Wildcard "*" for Admin | Simple pattern; avoids explicitly listing every permission for the super-admin role |
-| 5-minute cache TTL for permissions | Avoid per-request DB hit; small lag on permission changes is acceptable |
-| IPlanFeatureService stub in Iter 9 | Billing context not implemented yet; stub keeps Iter 9 testable and unblocked |
-| Feature enum in Billing.Application | Features are a billing/product concern, not identity concern — right bounded context |
+| Frontend: state-based routing in App.tsx (no react-router) | App has only 2 views; no library needed for this |
+| Frontend: JWT stored in localStorage | Simple; sufficient for this learning project |
+| accessTokenFactory reads localStorage at negotiate time | Token always current even if connection object was cached pre-login |
+| PermissionService reads ICurrentUser.Role (not userId→DB) | Role already in JWT claim; avoids extra DB lookup and wrong-layer coupling |
+| Policy-based over [Authorize(Roles="X")] | Roles stored in DB; changing permissions = DB update, no redeploy |
+| Permissions as strings ("conversation:create") | Human-readable, extensible without enum changes |
+| Wildcard "*" for Admin | Simple; avoids listing every permission for super-admin |
+| 5-minute cache TTL for permissions | Avoid per-request DB hit; small lag on permission changes acceptable |
+| IPlanFeatureService stub in Iter 9 | Billing context not implemented yet; stub keeps Iter 9 testable |
+| Feature enum in Billing.Application | Features are a billing/product concern, not identity concern |

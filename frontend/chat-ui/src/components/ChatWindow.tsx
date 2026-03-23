@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, CircularProgress, Typography, Alert } from '@mui/material'
+import { Box, Button, CircularProgress, Typography, Alert } from '@mui/material'
 import type { ChatMessage } from '../types/chat'
 import { signalRService } from '../services/signalRService'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 
-export function ChatWindow() {
+interface ChatWindowProps {
+  onLogout?: () => void
+}
+
+export function ChatWindow({ onLogout }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,10 +82,19 @@ export function ChatWindow() {
     })
   }
 
+  const logoutButton = onLogout && (
+    <Box sx={{ position: 'absolute', top: 12, right: 16 }}>
+      <Button size="small" variant="outlined" onClick={onLogout}>
+        Logout
+      </Button>
+    </Box>
+  )
+
   if (messages.length === 0 && !error) {
     return (
       <Box
         sx={{
+          position: 'relative',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -91,6 +104,7 @@ export function ChatWindow() {
           px: 2,
         }}
       >
+        {logoutButton}
         <Typography
           variant="h4"
           sx={{ fontWeight: 400, color: 'text.primary', textAlign: 'center' }}
@@ -103,7 +117,8 @@ export function ChatWindow() {
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' }}>
+      {logoutButton}
       <MessageList messages={messages} />
       {isStreaming && (
         <Box
