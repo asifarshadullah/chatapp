@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../../App'
@@ -20,6 +20,15 @@ vi.mock('../../services/signalRService', () => ({
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
     sendMessage: vi.fn(),
+  },
+}))
+
+vi.mock('../../services/billingService', () => ({
+  billingService: {
+    getPlans: vi.fn().mockResolvedValue([]),
+    getSubscription: vi.fn().mockResolvedValue(null),
+    subscribe: vi.fn(),
+    cancelSubscription: vi.fn(),
   },
 }))
 
@@ -64,6 +73,27 @@ it('returns to LoginPage after logout', async () => {
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument()
   })
   expect(authService.logout).toHaveBeenCalledOnce()
+})
+
+// ── Cycle FB3.2 ──────────────────────────────────────────────────────────────
+
+it('App_whenAuthenticated_canNavigateToBillingView', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+
+  render(<App />)
+  expect(screen.getByRole('textbox')).toBeInTheDocument() // chat textarea
+
+  await userEvent.click(screen.getByRole('button', { name: /manage plan/i }))
+
+  await waitFor(() => {
+    expect(screen.getByText(/manage plan/i)).toBeInTheDocument() // BillingPage heading
+  })
+
+  await userEvent.click(screen.getByRole('button', { name: /back to chat/i }))
+
+  await waitFor(() => {
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+  })
 })
 
 // ── Cycle FA3.3 ──────────────────────────────────────────────────────────────

@@ -3,6 +3,10 @@ using Chat.Api.Hubs;
 using Chat.Application.Interfaces;
 using Chat.Application.Services;
 using Chat.Billing.Application.Interfaces;
+using Chat.Billing.Application.Services;
+using Chat.Billing.Infrastructure.Configuration;
+using Chat.Billing.Infrastructure.Payment;
+using Chat.Billing.Infrastructure.Repositories;
 using Chat.Billing.Infrastructure.Services;
 using Chat.Identity.Application.Interfaces;
 using Chat.Identity.Infrastructure.Authorization;
@@ -55,8 +59,14 @@ builder.Services.AddScoped<IAiProvider, OllamaAiProvider>();
 // Application layer services
 builder.Services.AddScoped<IChatService, ChatService>();
 
-// Billing / feature gating (stub — always enables all features)
-builder.Services.AddScoped<IPlanFeatureService, StubPlanFeatureService>();
+// ── Billing ────────────────────────────────────────────────────────────────────
+builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection("Stripe"));
+builder.Services.AddScoped<ISubscriptionRepository, MongoSubscriptionRepository>();
+builder.Services.AddScoped<IPlanRepository, MongoPlanRepository>();
+builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
+builder.Services.AddScoped<IPaymentGateway, StripePaymentGateway>();
+builder.Services.AddScoped<IWebhookHandler, StripeWebhookHandler>();
+builder.Services.AddScoped<IPlanFeatureService, RealPlanFeatureService>();
 
 // ── Identity ──────────────────────────────────────────────────────────────────
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));

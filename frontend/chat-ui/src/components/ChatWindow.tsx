@@ -7,9 +7,10 @@ import { ChatInput } from './ChatInput'
 
 interface ChatWindowProps {
   onLogout?: () => void
+  onManageBilling?: () => void
 }
 
-export function ChatWindow({ onLogout }: ChatWindowProps) {
+export function ChatWindow({ onLogout, onManageBilling }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,11 +83,18 @@ export function ChatWindow({ onLogout }: ChatWindowProps) {
     })
   }
 
-  const logoutButton = onLogout && (
-    <Box sx={{ position: 'absolute', top: 12, right: 16 }}>
-      <Button size="small" variant="outlined" onClick={onLogout}>
-        Logout
-      </Button>
+  const headerButtons = (onLogout || onManageBilling) && (
+    <Box sx={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 1 }}>
+      {onManageBilling && (
+        <Button size="small" variant="outlined" onClick={onManageBilling}>
+          Manage Plan
+        </Button>
+      )}
+      {onLogout && (
+        <Button size="small" variant="outlined" onClick={onLogout}>
+          Logout
+        </Button>
+      )}
     </Box>
   )
 
@@ -104,7 +112,7 @@ export function ChatWindow({ onLogout }: ChatWindowProps) {
           px: 2,
         }}
       >
-        {logoutButton}
+        {headerButtons}
         <Typography
           variant="h4"
           sx={{ fontWeight: 400, color: 'text.primary', textAlign: 'center' }}
@@ -118,7 +126,7 @@ export function ChatWindow({ onLogout }: ChatWindowProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' }}>
-      {logoutButton}
+      {headerButtons}
       <MessageList messages={messages} />
       {isStreaming && (
         <Box

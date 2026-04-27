@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Chat.Billing.Application\Chat.Billing.Application.csproj" />
+    <ProjectReference Include="..\..\src\Chat.Billing.Domain\Chat.Billing.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Chat.Billing.Infrastructure\Chat.Billing.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

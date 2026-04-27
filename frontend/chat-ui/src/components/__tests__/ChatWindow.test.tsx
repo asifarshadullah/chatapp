@@ -164,4 +164,13 @@ describe('ChatWindow', () => {
     await userEvent.click(screen.getByRole('button', { name: /logout/i }))
     expect(onLogout).toHaveBeenCalledOnce()
   })
+
+  // ── Cycle FB3.1 — manage billing button ──────────────────────────────
+
+  it('manageBilling_button_inChatWindow_callsOnManageBilling', async () => {
+    const onManageBilling = vi.fn()
+    render(<ChatWindow onManageBilling={onManageBilling} />)
+    await userEvent.click(screen.getByRole('button', { name: /manage plan/i }))
+    expect(onManageBilling).toHaveBeenCalledOnce()
+  })
 })

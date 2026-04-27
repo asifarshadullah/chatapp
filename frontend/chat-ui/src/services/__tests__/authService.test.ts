@@ -12,7 +12,7 @@ describe('login', () => {
   it('stores token and returns TokenDto on success', async () => {
     const mockResponse = {
       accessToken: 'test-jwt-token',
-      expiresAt: '2026-03-24T00:00:00Z',
+      expiresAt: '2099-12-31T00:00:00Z',
       userId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({

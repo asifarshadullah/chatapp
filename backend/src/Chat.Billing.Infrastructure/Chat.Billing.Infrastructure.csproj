@@ -2,6 +2,13 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Chat.Billing.Application\Chat.Billing.Application.csproj" />
+    <ProjectReference Include="..\Chat.Billing.Domain\Chat.Billing.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" Version="2.*" />
+    <PackageReference Include="Stripe.net" Version="45.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="8.*" />
   </ItemGroup>
 
   <PropertyGroup>

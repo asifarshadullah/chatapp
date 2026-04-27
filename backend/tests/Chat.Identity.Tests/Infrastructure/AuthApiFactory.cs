@@ -4,6 +4,8 @@ using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text;
 using Chat.Application.Interfaces;
+using Chat.Billing.Application.Interfaces;
+using Chat.Billing.Domain.Entities;
 using Chat.Identity.Application.DTOs;
 using Chat.Identity.Application.Interfaces;
 using Chat.Identity.Domain.Entities;
@@ -62,6 +64,20 @@ public class AuthApiFactory : WebApplicationFactory<Program>
             fakeRoleStore.Roles.Add(new RoleInfo("OrgAdmin", ["conversation:create", "conversation:read", "conversation:share", "user:invite"]));
             fakeRoleStore.Roles.Add(new RoleInfo("Admin",    ["*"]));
             services.AddSingleton<IRoleStore>(fakeRoleStore);
+
+            // Replace MongoDB-backed billing repos with stubs (no MongoDB needed for identity tests)
+            var subRepoDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ISubscriptionRepository));
+            if (subRepoDescriptor is not null) services.Remove(subRepoDescriptor);
+            services.AddSingleton<ISubscriptionRepository, StubSubscriptionRepository>();
+
+            var planRepoDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPlanRepository));
+            if (planRepoDescriptor is not null) services.Remove(planRepoDescriptor);
+            services.AddSingleton<IPlanRepository, StubPlanRepository>();
+
+            // Replace RealPlanFeatureService with a stub that always returns true
+            var featureDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPlanFeatureService));
+            if (featureDescriptor is not null) services.Remove(featureDescriptor);
+            services.AddSingleton<IPlanFeatureService, AlwaysEnabledFeatureService>();
         });
     }
 
@@ -142,4 +158,24 @@ public class FakeAiProvider : IAiProvider
         yield return "Fake AI response";
         await Task.Yield();
     }
+}
+
+public class StubSubscriptionRepository : ISubscriptionRepository
+{
+    public Task<Subscription?> GetByUserIdAsync(Guid userId, CancellationToken ct = default) => Task.FromResult<Subscription?>(null);
+    public Task<Subscription?> GetByStripeIdAsync(string stripeId, CancellationToken ct = default) => Task.FromResult<Subscription?>(null);
+    public Task SaveAsync(Subscription subscription, CancellationToken ct = default) => Task.CompletedTask;
+}
+
+public class StubPlanRepository : IPlanRepository
+{
+    public Task<IReadOnlyList<Plan>> GetAllAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<Plan>>(new List<Plan>().AsReadOnly());
+    public Task<Plan?> GetByIdAsync(Guid id, CancellationToken ct = default)
+        => Task.FromResult<Plan?>(null);
+}
+
+public class AlwaysEnabledFeatureService : IPlanFeatureService
+{
+    public Task<bool> IsEnabledAsync(string feature, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
 }

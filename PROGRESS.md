@@ -321,3 +321,73 @@
 | 2026-03-23 | StubPlanFeatureService enables all features | No billing logic yet; stub ships always-on behaviour until real billing plans are built |
 | 2026-03-23 | authService stores JWT in localStorage | Simplest persistence across page reloads; `accessTokenFactory` reads from it at SignalR negotiate time |
 | 2026-03-23 | State-based routing in App.tsx (no react-router) | App has only two views (login / chat); react-router would be over-engineering for this scope |
+| 2026-03-29 | IWebhookHandler interface separates webhook routing from IPaymentGateway | Breaks circular DI: StripePaymentGateway depends on nothing application-layer; StripeWebhookHandler depends on ISubscriptionService |
+| 2026-03-29 | Chat.Billing.Domain project for enums + entities | Keeps billing domain types dependency-free; Application and Infrastructure reference Domain, never vice versa |
+| 2026-03-29 | RealPlanFeatureService free-tier fallback (Chat only) | Users with no/cancelled subscriptions still get basic chat access; DocumentUpload/Share require active paid plan |
+| 2026-03-29 | StubSubscriptionRepository + StubPlanRepository in AuthApiFactory | Identity integration tests run without MongoDB for billing repos; prevents 30s timeout on missing connection |
+
+---
+
+## Iteration 10: Billing & Payment (Stripe) ✅
+
+### Frontend Track ✅
+
+#### FB1: billingService TDD ✅
+- [x] FB1.1 `getPlans_returnsPlansArray` → GET /billing/plans with Bearer token
+- [x] FB1.2 `subscribe_returnsCheckoutUrl` → POST /billing/subscribe `{ planId }`
+- [x] FB1.3 `getSubscription_returnsStatus` → GET /billing/subscription
+- [x] FB1.4 `cancelSubscription_callsDeleteEndpoint` → DELETE /billing/subscription
+
+#### FB2: BillingPage component TDD ✅
+- [x] FB2.1 `renders_planCards_withNamePriceAndFeatures` — plan cards with name, price, features
+- [x] FB2.2 `subscribe_button_callsBillingService_andRedirectsToCheckoutUrl` — window.location.href
+- [x] FB2.3 `shows_currentSubscription_status_badge` — GET /billing/subscription on mount
+- [x] FB2.4 `cancel_button_callsCancelAndRefreshesStatus` — cancel + re-fetch
+- [x] FB2.5 `back_button_callsOnBack` — onBack prop
+
+#### FB3: App navigation TDD ✅
+- [x] FB3.1 `manageBilling_button_inChatWindow_callsOnManageBilling` — "Manage Plan" button in ChatWindow header
+- [x] FB3.2 `App_whenAuthenticated_canNavigateToBillingView` — view: 'chat' | 'billing' state
+
+### Backend Track ✅
+
+#### Phase 1: Chat.Billing.Domain ✅
+- [x] `PlanTier.cs` enum (Free, Pro, Enterprise)
+- [x] `SubscriptionStatus.cs` enum (Active, Cancelled, PastDue, Trialing)
+- [x] `Feature.cs` enum (Chat, DocumentUpload, Share)
+- [x] `Plan.cs` entity with `Includes(Feature)` helper
+- [x] `Subscription.cs` entity with `Activate()`, `Cancel()`, `MarkPastDue()`, `ChangePlan()`
+
+#### Phase 2: Application interfaces + SubscriptionService TDD ✅
+- [x] `ISubscriptionRepository`, `IPlanRepository`, `IPaymentGateway`, `ISubscriptionService`, `IWebhookHandler`
+- [x] `CheckoutSessionDto`, `SubscriptionStatusDto`, `PlanDto`
+- [x] Cycle 2.1: `SubscribeAsync_ReturnsCheckoutUrl`
+- [x] Cycle 2.2: `HandlePaymentSucceeded_ActivatesSubscription`
+- [x] Cycle 2.3: `HandleSubscriptionCancelled_CancelsSubscription`
+- [x] Cycle 2.4: `HandlePaymentSucceeded_SameEventTwice_DoesNotDuplicateOrError` (idempotency)
+- [x] Cycle 2.5: `HandleInvoicePaymentFailed_MarksSubscriptionPastDue`
+- [x] Cycle 2.6: `CancelSubscriptionAsync_CallsGatewayAndUpdatesStatus`
+
+#### Phase 3: RealPlanFeatureService TDD ✅
+- [x] Cycle 3.1: `IsFeatureEnabled_ActiveProSubscription_Chat_ReturnsTrue`
+- [x] Cycle 3.2: `IsFeatureEnabled_ActiveProSubscription_DocumentUpload_ReturnsTrue`
+- [x] Cycle 3.3: `IsFeatureEnabled_NoSubscription_Chat_ReturnsTrue` (free fallback)
+- [x] Cycle 3.4: `IsFeatureEnabled_NoSubscription_DocumentUpload_ReturnsFalse`
+- [x] Cycle 3.5: `IsFeatureEnabled_CancelledSubscription_DocumentUpload_ReturnsFalse`
+
+#### Phase 4: Infrastructure ✅
+- [x] `StripeSettings.cs`, `StripePaymentGateway.cs` (Stripe.net 45.*)
+- [x] `StripeWebhookHandler.cs` (IWebhookHandler — webhook routing, signature validation)
+- [x] `MongoSubscriptionRepository.cs`, `MongoPlanRepository.cs`
+- [x] `SubscriptionDocument.cs`, `PlanDocument.cs`
+
+#### Phase 5: API + Program.cs wiring ✅
+- [x] `BillingController.cs` — GET /billing/plans, POST /billing/subscribe, GET /billing/subscription, DELETE /billing/subscription
+- [x] `WebhookController.cs` — POST /webhooks/stripe (AllowAnonymous, IWebhookHandler)
+- [x] `Program.cs` — Stripe + MongoDB billing services registered, RealPlanFeatureService replaces stub
+- [x] `AuthApiFactory.cs` — billing stubs added (StubSubscriptionRepository, StubPlanRepository, AlwaysEnabledFeatureService)
+
+### Verification ✅
+- [x] 58/58 backend tests pass (11 Billing + 19 Identity + 15 Api + 13 Infrastructure)
+- [x] 61/61 frontend tests pass
+- [x] Build: 0 errors, 0 warnings
