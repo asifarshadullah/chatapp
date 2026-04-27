@@ -85,3 +85,18 @@ $RECYCLE.BIN/
 # Docker
 # =========================
 .docker/
+
+# =========================
+# Claude Code (local dev only)
+# =========================
+CLAUDE.md
+PROGRESS.md
+skills-lock.json
+.claude/
+
+# =========================
+# Internal docs & diagrams (local only)
+# =========================
+docs/
+*.excalidraw
+
