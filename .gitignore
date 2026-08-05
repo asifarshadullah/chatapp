@@ -92,7 +92,10 @@ $RECYCLE.BIN/
 CLAUDE.md
 PROGRESS.md
 skills-lock.json
-.claude/
+# Machine-specific permissions and paths. Shared skills under .claude/skills/
+# and .agents/skills/ stay tracked on purpose.
+.claude/settings.local.json
+.claude/settings.json
 
 # =========================
 # Internal docs & diagrams (local only)
