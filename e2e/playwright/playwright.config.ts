@@ -5,7 +5,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // The local LLM serves one request at a time, so parallel workers just queue
+  // on it while making timeouts harder to reason about.
+  workers: 1,
+  // A cold model load plus a fully streamed reply comfortably exceeds the 30s default.
+  timeout: 150_000,
   reporter: 'html',
   use: {
     baseURL: 'http://localhost:5173',
@@ -14,8 +18,17 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
+    {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: './.auth/user.json',
+      },
+      dependencies: ['setup'],
+      testIgnore: /auth\.setup\.ts/,
     },
   ],
   webServer: [
@@ -23,14 +36,15 @@ export default defineConfig({
       command: 'dotnet run --project ../../backend/src/Chat.Api',
       url: 'http://localhost:5064/swagger',
       reuseExistingServer: !process.env.CI,
-      timeout: 30000,
+      // A cold `dotnet run` restores and builds before it starts listening.
+      timeout: 180_000,
     },
     {
       command: 'npm run dev',
       cwd: '../../frontend/chat-ui',
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,
-      timeout: 15000,
+      timeout: 60_000,
     },
   ],
 });

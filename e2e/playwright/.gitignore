@@ -6,3 +6,5 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+# Saved auth token from the setup project — per-run credentials, never shared.
+/.auth/

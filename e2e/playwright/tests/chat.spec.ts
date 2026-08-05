@@ -1,8 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { ChatPage } from './helpers/chat-page';
+import { ChatPage, STREAM_TIMEOUT } from './helpers/chat-page';
 
+/**
+ * These run against the real backend and a real local LLM, so replies are
+ * non-deterministic. Assertions check the shape of the interaction — a reply
+ * arrives, it is non-empty, it lands in the right order — never its wording.
+ */
 test.describe('Chat', () => {
-  // 2.5 — Page elements are present
+  // Page elements are present
   test('chat page has all required elements', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
@@ -11,7 +16,7 @@ test.describe('Chat', () => {
     await expect(chat.getSendButton()).toBeVisible();
   });
 
-  // 2.3 — Empty message cannot be sent
+  // Empty message cannot be sent
   test('send button is disabled when input is empty', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
@@ -25,97 +30,86 @@ test.describe('Chat', () => {
     await expect(chat.getSendButton()).toBeDisabled();
   });
 
-  // 2.1 — Send message and receive echo response
-  test('user can send a message and receive an echo response', async ({ page }) => {
+  // Send a message and receive a reply from the model
+  test('user can send a message and receive a reply', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
 
-    await chat.sendMessage('Hello, World!');
+    await chat.sendAndAwaitReply('Say hello in three words.', 1);
 
-    await expect(chat.getUserMessages().first()).toHaveText('Hello, World!');
-    await chat.waitForAssistantResponse(1);
-    await expect(chat.getAssistantMessages().first()).toHaveText('Echo: Hello, World!');
+    await expect(chat.getUserMessages().first()).toHaveText('Say hello in three words.');
+    // Any non-whitespace reply proves the round trip; the wording is the model's.
+    await expect(chat.getAssistantMessages().first()).toHaveText(/\S/);
   });
 
-  // 2.2 — Multiple messages in sequence
+  // Multiple messages in sequence
   test('user can send multiple messages and all appear in order', async ({ page }) => {
+    test.slow(); // three sequential model replies
     const chat = new ChatPage(page);
     await chat.goto();
 
-    await chat.sendMessage('First message');
-    await chat.waitForAssistantResponse(1);
-
-    await chat.sendMessage('Second message');
-    await chat.waitForAssistantResponse(2);
-
-    await chat.sendMessage('Third message');
-    await chat.waitForAssistantResponse(3);
+    await chat.sendAndAwaitReply('Say the word first.', 1);
+    await chat.sendAndAwaitReply('Say the word second.', 2);
+    await chat.sendAndAwaitReply('Say the word third.', 3);
 
     const userMsgs = chat.getUserMessages();
     await expect(userMsgs).toHaveCount(3);
-    await expect(userMsgs.nth(0)).toHaveText('First message');
-    await expect(userMsgs.nth(1)).toHaveText('Second message');
-    await expect(userMsgs.nth(2)).toHaveText('Third message');
+    await expect(userMsgs.nth(0)).toHaveText('Say the word first.');
+    await expect(userMsgs.nth(1)).toHaveText('Say the word second.');
+    await expect(userMsgs.nth(2)).toHaveText('Say the word third.');
 
     const assistantMsgs = chat.getAssistantMessages();
     await expect(assistantMsgs).toHaveCount(3);
-    await expect(assistantMsgs.nth(0)).toHaveText('Echo: First message');
-    await expect(assistantMsgs.nth(1)).toHaveText('Echo: Second message');
-    await expect(assistantMsgs.nth(2)).toHaveText('Echo: Third message');
+    for (let i = 0; i < 3; i++) {
+      await expect(assistantMsgs.nth(i)).toHaveText(/\S/);
+    }
   });
 
-  // 4.2 — Messages persist within a conversation session
+  // Messages persist within a conversation session
   test('messages persist within a conversation session', async ({ page }) => {
+    test.slow(); // two sequential model replies
     const chat = new ChatPage(page);
     await chat.goto();
 
-    await chat.sendMessage('Message 1');
-    await chat.waitForAssistantResponse(1);
-
-    await chat.sendMessage('Message 2');
-    await chat.waitForAssistantResponse(2);
+    await chat.sendAndAwaitReply('Reply with the word one.', 1);
+    await chat.sendAndAwaitReply('Reply with the word two.', 2);
 
     await expect(chat.getUserMessages()).toHaveCount(2);
     await expect(chat.getAssistantMessages()).toHaveCount(2);
 
-    await expect(chat.getUserMessages().nth(0)).toHaveText('Message 1');
-    await expect(chat.getUserMessages().nth(1)).toHaveText('Message 2');
-    await expect(chat.getAssistantMessages().nth(0)).toHaveText('Echo: Message 1');
-    await expect(chat.getAssistantMessages().nth(1)).toHaveText('Echo: Message 2');
+    // Earlier turns stay on screen rather than being replaced by the latest one.
+    await expect(chat.getUserMessages().nth(0)).toHaveText('Reply with the word one.');
+    await expect(chat.getUserMessages().nth(1)).toHaveText('Reply with the word two.');
   });
 
-  // Cycle 4.1 — Streaming: typing indicator appears then response arrives
-  test('response streams word by word with typing indicator', async ({ page }) => {
+  // Streaming: typing indicator appears, then the response arrives
+  test('response streams with a typing indicator', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
 
-    await chat.getInput().fill('Hello World');
-    await chat.getSendButton().click();
+    await chat.sendMessage('Count to three.');
 
-    // Typing indicator appears while streaming
-    await expect(page.getByLabel('typing indicator')).toBeVisible();
+    await expect(chat.getTypingIndicator()).toBeVisible({ timeout: STREAM_TIMEOUT });
 
-    // Full response eventually appears (streaming completes)
     await chat.waitForAssistantResponse(1);
-    await expect(chat.getAssistantMessages().first()).toHaveText('Echo: Hello World');
+    await chat.waitForStreamComplete();
 
-    // Typing indicator disappears once done
-    await expect(page.getByLabel('typing indicator')).not.toBeVisible();
+    await expect(chat.getAssistantMessages().first()).toHaveText(/\S/);
+    await expect(chat.getTypingIndicator()).toBeHidden();
   });
 
-  // 2.4 — Input disabled during streaming
+  // Input is disabled during streaming
   test('input is disabled while streaming response', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
 
-    await chat.getInput().fill('Hello there today');
-    await chat.getSendButton().click();
+    await chat.sendMessage('Say hi.');
 
-    // Input is disabled while streaming
     await expect(chat.getInput()).toBeDisabled();
 
-    // Input re-enables after stream completes
     await chat.waitForAssistantResponse(1);
+    await chat.waitForStreamComplete();
+
     await expect(chat.getInput()).toBeEnabled();
   });
 });
