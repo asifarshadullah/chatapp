@@ -22,6 +22,15 @@ public static class RoleSeeder
             new RoleDocument { Name = "Admin",    Permissions = ["*"] },
         };
 
-        await collection.InsertManyAsync(defaults, cancellationToken: ct);
+        try
+        {
+            await collection.InsertManyAsync(defaults, new InsertManyOptions { IsOrdered = false }, ct);
+        }
+        catch (MongoBulkWriteException<RoleDocument> ex)
+            when (ex.WriteErrors.All(e => e.Category == ServerErrorCategory.DuplicateKey))
+        {
+            // Another instance passed the emptiness check and seeded first. It wrote the same
+            // defaults, so the collection is already in the intended state.
+        }
     }
 }
