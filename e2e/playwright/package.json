@@ -2,6 +2,9 @@
   "name": "playwright",
   "version": "1.0.0",
   "main": "index.js",
+  "engines": {
+    "node": ">=20 <21"
+  },
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",
