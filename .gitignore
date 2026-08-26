@@ -89,7 +89,6 @@ $RECYCLE.BIN/
 # =========================
 # Claude Code (local dev only)
 # =========================
-CLAUDE.md
 PROGRESS.md
 skills-lock.json
 # Machine-specific permissions and paths. Shared skills under .claude/skills/
@@ -100,6 +99,9 @@ skills-lock.json
 # =========================
 # Internal docs & diagrams (local only)
 # =========================
-docs/
+docs/iterations/
+docs/feature-plan.md
+docs/manual-testing.md
+docs/signalr-reference.md
 *.excalidraw
 

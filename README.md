@@ -131,6 +131,8 @@ backend/
 └── tests/                            # xUnit test projects per layer
 frontend/chat-ui/                     # React 19 + Vite + TypeScript + MUI
 e2e/playwright/                       # Playwright E2E tests
+docs/architecture/                    # Trade-off write-ups and design retrospectives
+openspec/                             # Specs and change proposals
 docker-compose.yml                    # MongoDB 7 + Mongo Express
 ```
 
@@ -248,6 +250,8 @@ The hub method returns `IAsyncEnumerable<string>` directly — no custom message
 ### 4. Feature gating via `IPlanFeatureService` in `Chat.Billing.Application`
 
 Cross-cutting concerns often end up in the wrong layer. Feature flags aren't an Identity concern (they're not about *who* you are) and aren't a Chat concern (they're not about *how* messaging works) — they're a billing concern (what your plan *entitles* you to). `ChatHub` calls `IPlanFeatureService.IsFeatureEnabled(userId, Feature.Chat)` before streaming; `RealPlanFeatureService` lives in Billing.Infrastructure and makes the subscription/plan decision. Placing the interface in the billing context, not in `Chat.Application`, is what keeps the dependency graph one-way.
+
+Longer write-ups live in [docs/architecture/](docs/architecture/) — the trade-offs behind the context split and the MongoDB document design, and a scenario followed from requirement through design to a retrospective on where the up-front design turned out to be wrong.
 
 ---
 
