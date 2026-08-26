@@ -184,3 +184,38 @@ SHALL be shared by all concurrent callers rather than triggering a renewal each.
 
 - **WHEN** no session has been established
 - **THEN** the client does not attempt to renew
+
+#### Scenario: A refused request is retried once against a renewed token
+
+- **WHEN** an authenticated request is refused because its access token is not accepted
+- **THEN** the client renews and repeats the request once
+- **AND** a second refusal is reported to the caller rather than retried again
+
+### Requirement: A returning user with a lapsed access token stays signed in
+
+The refresh credential cannot be read by client script, so the client cannot see whether one
+exists. It SHALL therefore record that a session was established, and on returning with an
+access token that has lapsed it SHALL attempt renewal before concluding that the user is
+signed out. Ending the session SHALL clear that record.
+
+#### Scenario: Returning after the access token has lapsed
+
+- **WHEN** a user returns and the stored access token has expired
+- **AND** a session was previously established
+- **THEN** the client attempts to renew before deciding what to show
+- **AND** the user continues without being asked to sign in again
+
+#### Scenario: Returning when renewal is refused
+
+- **WHEN** a user returns, the access token has lapsed, and renewal is refused
+- **THEN** the sign-in form is shown
+
+#### Scenario: A visitor who never signed in is not renewed
+
+- **WHEN** no session was ever established
+- **THEN** no renewal is attempted and the sign-in form is shown
+
+#### Scenario: Signing out prevents a later restoration
+
+- **WHEN** a user signs out and later returns
+- **THEN** no renewal is attempted and the sign-in form is shown

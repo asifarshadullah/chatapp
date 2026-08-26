@@ -98,3 +98,16 @@ before continuing.
       passes, since it is not covered by CI
 - [x] 7.4 Verify each new test fails against the pre-change code, per CLAUDE.md; correct or
       drop any that passes without the implementation
+
+## 8. Pre-archive audit
+
+Added after comparing the shipped behaviour with the delta spec, per the archive guidance
+in openspec/config.yaml.
+
+- [x] 8.1 Route authenticated REST calls through a renewing fetch: chatApi and billingService
+      used the non-renewing accessor, so the hub renewed while ordinary API calls kept sending
+      a lapsed token; verified by the authorizedFetch tests
+- [x] 8.2 Retry a refused request once against a renewed token, as the spec requires and the
+      implementation had omitted; verified by the retry and no-loop tests
+- [x] 8.3 Record session restoration in the spec — it shipped but was never specified; the
+      delta spec now carries it as its own requirement

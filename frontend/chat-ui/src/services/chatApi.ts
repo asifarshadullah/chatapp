@@ -1,17 +1,12 @@
 import type { ChatResponse, ConversationHistory } from '../types/chat'
-import { authService } from './authService'
+import { authorizedFetch } from './authorizedFetch'
 
 const API_BASE = '/api'
 
-function authHeaders(): Record<string, string> {
-  const token = authService.getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 export async function sendMessage(message: string, conversationId?: string): Promise<ChatResponse> {
-  const response = await fetch(`${API_BASE}/chat`, {
+  const response = await authorizedFetch(`${API_BASE}/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, conversationId }),
   })
 
@@ -23,9 +18,7 @@ export async function sendMessage(message: string, conversationId?: string): Pro
 }
 
 export async function getHistory(conversationId: string): Promise<ConversationHistory> {
-  const response = await fetch(`${API_BASE}/chat/${conversationId}/history`, {
-    headers: authHeaders(),
-  })
+  const response = await authorizedFetch(`${API_BASE}/chat/${conversationId}/history`)
 
   if (!response.ok) {
     throw new Error(`API error: ${response.status}`)

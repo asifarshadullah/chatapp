@@ -6,7 +6,12 @@ vi.stubGlobal('fetch', mockFetch)
 
 const TOKEN = 'test-token'
 vi.mock('../authService', () => ({
-  authService: { getToken: () => TOKEN },
+  authService: {
+    getToken: () => TOKEN,
+    // Requests now renew before sending, so the mock must serve the renewing accessor too.
+    getValidToken: async () => TOKEN,
+    refresh: async () => TOKEN,
+  },
 }))
 
 beforeEach(() => {
@@ -16,6 +21,15 @@ beforeEach(() => {
 // ── FB1.1: getPlans ───────────────────────────────────────────────────────────
 
 describe('getPlans', () => {
+
+  // These endpoints require a bearer token, and the client now renews before sending, so a
+  // signed-in session has to exist for the request to be attempted at all.
+  beforeEach(() => {
+    localStorage.setItem('auth_token', 'test-token')
+    localStorage.setItem('auth_token_expiry', new Date(Date.now() + 3_600_000).toISOString())
+    localStorage.setItem('auth_session', 'active')
+  })
+
   it('getPlans_returnsPlansArray', async () => {
     const plans = [
       { id: '1', name: 'Free', tier: 'Free', pricePerMonth: 0, features: ['chat'] },

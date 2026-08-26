@@ -1,24 +1,17 @@
 import type { CheckoutSessionDto, PlanDto, SubscriptionStatusDto } from '../types/chat'
-import { authService } from './authService'
-
-function authHeaders(): Record<string, string> {
-  const token = authService.getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
+import { authorizedFetch } from './authorizedFetch'
 
 class BillingService {
   async getPlans(): Promise<PlanDto[]> {
-    const response = await fetch('/billing/plans', {
-      headers: authHeaders(),
-    })
+    const response = await authorizedFetch('/billing/plans')
     if (!response.ok) throw new Error(`${response.status}`)
     return response.json()
   }
 
   async subscribe(planId: string): Promise<CheckoutSessionDto> {
-    const response = await fetch('/billing/subscribe', {
+    const response = await authorizedFetch('/billing/subscribe', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ planId }),
     })
     if (!response.ok) throw new Error(`${response.status}`)
@@ -26,18 +19,15 @@ class BillingService {
   }
 
   async getSubscription(): Promise<SubscriptionStatusDto | null> {
-    const response = await fetch('/billing/subscription', {
-      headers: authHeaders(),
-    })
+    const response = await authorizedFetch('/billing/subscription')
     if (response.status === 404) return null
     if (!response.ok) throw new Error(`${response.status}`)
     return response.json()
   }
 
   async cancelSubscription(): Promise<void> {
-    const response = await fetch('/billing/subscription', {
+    const response = await authorizedFetch('/billing/subscription', {
       method: 'DELETE',
-      headers: authHeaders(),
     })
     if (!response.ok) throw new Error(`${response.status}`)
   }

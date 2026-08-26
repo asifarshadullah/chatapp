@@ -6,6 +6,14 @@ describe('sendMessage', () => {
     vi.restoreAllMocks()
   })
 
+  // These endpoints require a bearer token, and the client now renews before sending, so a
+  // signed-in session has to exist for the request to be attempted at all.
+  beforeEach(() => {
+    localStorage.setItem('auth_token', 'test-token')
+    localStorage.setItem('auth_token_expiry', new Date(Date.now() + 3_600_000).toISOString())
+    localStorage.setItem('auth_session', 'active')
+  })
+
   // Cycle 3.2 — success response
   it('returns parsed ChatResponse on success', async () => {
     const mockResponse = { id: 'abc', message: 'Echo: hi', role: 'assistant', timestamp: '2024-01-01T00:00:00Z' }
@@ -46,9 +54,10 @@ describe('sendMessage', () => {
 
     await sendMessage('hi')
 
+    // The bearer token is attached by authorizedFetch, which also renews it when stale.
     expect(fetch).toHaveBeenCalledWith('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer test-token' },
       body: JSON.stringify({ message: 'hi' }),
     })
   })
