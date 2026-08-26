@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../../App'
 import { authService } from '../../services/authService'
-import { signalRService } from '../../services/signalRService'
+import { signalRService, SessionExpiredError } from '../../services/signalRService'
 
 vi.mock('../../services/authService', () => ({
   authService: {
@@ -15,7 +15,11 @@ vi.mock('../../services/authService', () => ({
   },
 }))
 
-vi.mock('../../services/signalRService', () => ({
+vi.mock('../../services/signalRService', async (importOriginal) => ({
+  // Keep the real error class and message constants: the component compares
+  // against them, so stubbing them out would make these tests pass on
+  // mismatched strings.
+  ...(await importOriginal<typeof import('../../services/signalRService')>()),
   signalRService: {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
@@ -116,4 +120,19 @@ it('transitions to ChatWindow after successful login', async () => {
   await waitFor(() => {
     expect(screen.getByRole('textbox')).toBeInTheDocument() // chat textarea
   })
+})
+
+// ── Expired session recovery ─────────────────────────────────────────────────
+
+it('returns to the sign in form when the session has expired', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+
+  render(<App />)
+
+  // An expired session must land the user on login, not strand them on a chat
+  // page showing a connection error they cannot act on.
+  expect(await screen.findByLabelText(/password/i)).toBeInTheDocument()
+  expect(authService.logout).toHaveBeenCalled()
+  expect(signalRService.stop).toHaveBeenCalled()
 })

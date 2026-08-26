@@ -1,32 +1,55 @@
 import { useEffect, useRef, useState } from 'react'
 import { Box, Button, CircularProgress, Typography, Alert } from '@mui/material'
 import type { ChatMessage } from '../types/chat'
-import { signalRService } from '../services/signalRService'
+import {
+  signalRService,
+  SessionExpiredError,
+  SESSION_EXPIRED_MESSAGE,
+  CONNECT_FAILED_MESSAGE,
+} from '../services/signalRService'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 
 interface ChatWindowProps {
   onLogout?: () => void
   onManageBilling?: () => void
+  /** Called when the connection is refused because the session ended. */
+  onSessionExpired?: () => void
 }
 
-export function ChatWindow({ onLogout, onManageBilling }: ChatWindowProps) {
+export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: ChatWindowProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [conversationId, setConversationId] = useState<string | undefined>()
   const streamingIdRef = useRef<string | null>(null)
   const streamingContentRef = useRef('')
+  // Held in a ref so the connect effect stays mount-only: re-running it on a
+  // new callback identity would reconnect on every parent render.
+  const onSessionExpiredRef = useRef(onSessionExpired)
+  useEffect(() => {
+    onSessionExpiredRef.current = onSessionExpired
+  }, [onSessionExpired])
 
   useEffect(() => {
     let cancelled = false
     signalRService
       .start()
       .then(() => { if (!cancelled) setError(null) })
-      .catch(() => { if (!cancelled) setError('Failed to connect to chat server.') })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        if (err instanceof SessionExpiredError) {
+          setError(SESSION_EXPIRED_MESSAGE)
+          onSessionExpiredRef.current?.()
+          return
+        }
+        setError(CONNECT_FAILED_MESSAGE)
+      })
+    // No stop() here: the connection is a shared singleton that outlives this
+    // component, and tearing it down on unmount aborts the connect that
+    // StrictMode's immediate remount is already awaiting. Logout disconnects.
     return () => {
       cancelled = true
-      signalRService.stop()
     }
   }, [])
 
@@ -76,6 +99,7 @@ export function ChatWindow({ onLogout, onManageBilling }: ChatWindowProps) {
       onError: (err) => {
         setIsStreaming(false)
         setError(err)
+        if (err === SESSION_EXPIRED_MESSAGE) onSessionExpiredRef.current?.()
         setMessages((prev) => prev.filter((m) => m.id !== streamingIdRef.current))
         streamingIdRef.current = null
         streamingContentRef.current = ''

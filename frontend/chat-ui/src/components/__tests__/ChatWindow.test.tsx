@@ -1,11 +1,21 @@
+import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatWindow } from '../ChatWindow'
-import { signalRService } from '../../services/signalRService'
+import {
+  signalRService,
+  SessionExpiredError,
+  SESSION_EXPIRED_MESSAGE,
+  CONNECT_FAILED_MESSAGE,
+} from '../../services/signalRService'
 import type { StreamCallbacks } from '../../services/signalRService'
 
-vi.mock('../../services/signalRService', () => ({
+vi.mock('../../services/signalRService', async (importOriginal) => ({
+  // Keep the real error class and message constants: the component compares
+  // against them, so stubbing them out would make these tests pass on
+  // mismatched strings.
+  ...(await importOriginal<typeof import('../../services/signalRService')>()),
   signalRService: {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
@@ -172,5 +182,102 @@ describe('ChatWindow', () => {
     render(<ChatWindow onManageBilling={onManageBilling} />)
     await userEvent.click(screen.getByRole('button', { name: /manage plan/i }))
     expect(onManageBilling).toHaveBeenCalledOnce()
+  })
+
+  // ── Connection lifecycle regressions ──────────────────────────────────
+  //
+  // The chat page once showed "Failed to connect to chat server." on every
+  // load in dev while the hub was perfectly healthy: StrictMode's remount
+  // raced the unmount cleanup, which stopped the connection the remount was
+  // waiting on. These pin the contract that prevents it recurring.
+
+  it('does not stop the shared connection when it unmounts', () => {
+    const { unmount } = render(<ChatWindow />)
+    unmount()
+    // The connection is a module singleton meant to outlive one component.
+    // Stopping it here aborts a connect a remount may already be awaiting.
+    expect(signalRService.stop).not.toHaveBeenCalled()
+  })
+
+  it('shows no connection error under StrictMode double mounting', async () => {
+    // The mock mirrors the real client on the one point that matters here:
+    // stopping a connection mid-negotiation rejects the pending start. Without
+    // that, a mocked start() always resolves and the race cannot be observed.
+    let rejectPending: ((e: Error) => void) | null = null
+    vi.mocked(signalRService.start).mockImplementation(
+      () => new Promise<void>((resolve, reject) => {
+        rejectPending = reject
+        setTimeout(() => { rejectPending = null; resolve() }, 0)
+      }),
+    )
+    vi.mocked(signalRService.stop).mockImplementation(async () => {
+      rejectPending?.(new Error('The connection was stopped during negotiation.'))
+    })
+
+    render(
+      <StrictMode>
+        <ChatWindow />
+      </StrictMode>,
+    )
+
+    await waitFor(() => expect(signalRService.start).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 10))
+    expect(screen.queryByText(CONNECT_FAILED_MESSAGE)).not.toBeInTheDocument()
+  })
+
+  it('shows the connection error when the connect genuinely fails', async () => {
+    vi.mocked(signalRService.start).mockRejectedValue(new Error('transport failure'))
+    render(<ChatWindow />)
+    expect(await screen.findByText(CONNECT_FAILED_MESSAGE)).toBeInTheDocument()
+  })
+
+  // ── Expired session must not read as an unreachable server ────────────
+
+  it('reports an expired session distinctly, not as a dead server', async () => {
+    vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+    render(<ChatWindow />)
+
+    expect(await screen.findByText(SESSION_EXPIRED_MESSAGE)).toBeInTheDocument()
+    expect(screen.queryByText(CONNECT_FAILED_MESSAGE)).not.toBeInTheDocument()
+  })
+
+  it('notifies the parent so an expired session returns to sign in', async () => {
+    vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+    const onSessionExpired = vi.fn()
+
+    render(<ChatWindow onSessionExpired={onSessionExpired} />)
+
+    await waitFor(() => expect(onSessionExpired).toHaveBeenCalledOnce())
+  })
+
+  it('notifies the parent when a send fails on an expired session', async () => {
+    vi.mocked(signalRService.sendMessage).mockImplementation(
+      async (_msg: string, _convId: string | undefined, callbacks: StreamCallbacks) => {
+        callbacks.onError(SESSION_EXPIRED_MESSAGE)
+      },
+    )
+    const onSessionExpired = vi.fn()
+    render(<ChatWindow onSessionExpired={onSessionExpired} />)
+
+    await userEvent.type(screen.getByRole('textbox'), 'Hello')
+    await userEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => expect(onSessionExpired).toHaveBeenCalledOnce())
+  })
+
+  it('does not treat an ordinary stream error as an expired session', async () => {
+    vi.mocked(signalRService.sendMessage).mockImplementation(
+      async (_msg: string, _convId: string | undefined, callbacks: StreamCallbacks) => {
+        callbacks.onError('Connection error')
+      },
+    )
+    const onSessionExpired = vi.fn()
+    render(<ChatWindow onSessionExpired={onSessionExpired} />)
+
+    await userEvent.type(screen.getByRole('textbox'), 'Hello')
+    await userEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    expect(await screen.findByText('Connection error')).toBeInTheDocument()
+    expect(onSessionExpired).not.toHaveBeenCalled()
   })
 })

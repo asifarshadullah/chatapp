@@ -1,6 +1,22 @@
 import * as signalR from '@microsoft/signalr'
 import { authService } from './authService'
 
+/**
+ * Raised when a connect is attempted with no usable token — the session ended
+ * rather than the server being unreachable. Callers must tell those two apart:
+ * reporting an expired session as "server down" sends users to debug their
+ * infrastructure when all they need to do is sign in again.
+ */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super('Session expired')
+    this.name = 'SessionExpiredError'
+  }
+}
+
+export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please sign in again.'
+export const CONNECT_FAILED_MESSAGE = 'Failed to connect to chat server.'
+
 export interface StreamCallbacks {
   onConversationId: (id: string) => void
   onWord: (word: string) => void
@@ -11,12 +27,19 @@ export interface StreamCallbacks {
 class SignalRService {
   private _connection: signalR.HubConnection | null = null
   private _startPromise: Promise<void> | null = null
+  private _generation = 0
 
   private get connection(): signalR.HubConnection {
     if (!this._connection) {
       this._connection = new signalR.HubConnectionBuilder()
         .withUrl('/chatHub', {
-          accessTokenFactory: () => authService.getToken() ?? '',
+          // Throwing beats sending '': an empty bearer token makes the hub
+          // answer 401, which surfaces as an opaque transport failure.
+          accessTokenFactory: () => {
+            const token = authService.getToken()
+            if (!token) throw new SessionExpiredError()
+            return token
+          },
         })
         .withAutomaticReconnect()
         .build()
@@ -28,28 +51,43 @@ class SignalRService {
    * Connects if needed. Concurrent callers share one attempt and all wait for it,
    * so a send issued while the connection is still negotiating does not proceed
    * against a connection that is not ready yet.
+   *
+   * The shared attempt is cleared inside the promise rather than around the
+   * outer await: a caller that arrives after a failed attempt must get a fresh
+   * connect, not the rejection of one that has already been abandoned.
    */
   async start(): Promise<void> {
     if (this.connection.state === signalR.HubConnectionState.Connected) return
+    if (!authService.getToken()) throw new SessionExpiredError()
     if (this._startPromise) return this._startPromise
 
-    this._startPromise = (async () => {
-      while (this.connection.state === signalR.HubConnectionState.Disconnecting) {
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
-      if (this.connection.state === signalR.HubConnectionState.Disconnected) {
-        await this.connection.start()
+    const generation = ++this._generation
+    const attempt = (async () => {
+      try {
+        while (this.connection.state === signalR.HubConnectionState.Disconnecting) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        if (this.connection.state === signalR.HubConnectionState.Disconnected) {
+          await this.connection.start()
+        }
+      } finally {
+        // Only the newest attempt may clear the shared slot, so a slow failure
+        // cannot wipe out a newer connect that has since taken its place.
+        if (this._generation === generation) this._startPromise = null
       }
     })()
 
-    try {
-      await this._startPromise
-    } finally {
-      this._startPromise = null
-    }
+    this._startPromise = attempt
+    return attempt
   }
 
+  /**
+   * Tears the connection down for good — call on logout, not on component
+   * unmount. Any in-flight connect is awaited first so stopping cannot abort a
+   * negotiation that a still-mounted caller is waiting on.
+   */
   async stop(): Promise<void> {
+    await this._startPromise?.catch(() => {})
     await this.connection.stop()
   }
 
@@ -62,8 +100,10 @@ class SignalRService {
     // after a reconnect dropped it. start() is a no-op when already connected.
     try {
       await this.start()
-    } catch {
-      callbacks.onError('Failed to connect to chat server.')
+    } catch (err) {
+      callbacks.onError(
+        err instanceof SessionExpiredError ? SESSION_EXPIRED_MESSAGE : CONNECT_FAILED_MESSAGE,
+      )
       return
     }
 
