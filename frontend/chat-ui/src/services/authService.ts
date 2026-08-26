@@ -21,6 +21,9 @@ const SESSION_KEY = 'auth_session'
  * How close to expiry an access token may get before it is renewed. A margin rather than
  * zero so renewal happens before a request can fail, and wide enough to absorb clock skew
  * between the browser and the API.
+ *
+ * Access tokens are short-lived by design — see Jwt.ExpiryMinutes — so this stays well under
+ * that lifetime: a margin approaching it would renew almost every request.
  */
 const RENEWAL_MARGIN_MS = 60_000
 

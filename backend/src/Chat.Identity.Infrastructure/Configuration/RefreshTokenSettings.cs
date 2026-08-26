@@ -12,11 +12,5 @@ public class RefreshTokenSettings : IRefreshTokenSettings
     /// <summary>How long a refresh token stays exchangeable.</summary>
     public int LifetimeDays { get; set; } = 14;
 
-    /// <summary>
-    /// How close to expiry an access token may get before the client renews it. Exposed to
-    /// the frontend so the two agree on when a token counts as stale.
-    /// </summary>
-    public int RenewalMarginSeconds { get; set; } = 300;
-
     public TimeSpan Lifetime => TimeSpan.FromDays(LifetimeDays);
 }

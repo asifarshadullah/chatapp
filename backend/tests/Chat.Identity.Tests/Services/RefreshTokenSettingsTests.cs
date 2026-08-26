@@ -22,12 +22,9 @@ public class RefreshTokenSettingsTests
     [Fact]
     public void Binds_ConfiguredValues()
     {
-        var settings = Bind(
-            ("RefreshToken:LifetimeDays", "30"),
-            ("RefreshToken:RenewalMarginSeconds", "120"));
+        var settings = Bind(("RefreshToken:LifetimeDays", "30"));
 
         settings.LifetimeDays.Should().Be(30);
-        settings.RenewalMarginSeconds.Should().Be(120);
         settings.Lifetime.Should().Be(TimeSpan.FromDays(30));
     }
 
@@ -37,6 +34,5 @@ public class RefreshTokenSettingsTests
         var settings = Bind();
 
         settings.Lifetime.Should().Be(TimeSpan.FromDays(14));
-        settings.RenewalMarginSeconds.Should().Be(300);
     }
 }
