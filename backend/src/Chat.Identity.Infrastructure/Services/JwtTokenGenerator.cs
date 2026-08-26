@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using Chat.Identity.Application.DTOs;
 using Chat.Identity.Application.Interfaces;
@@ -47,4 +48,27 @@ public class JwtTokenGenerator : ITokenGenerator
 
         return new TokenDto(new JwtSecurityTokenHandler().WriteToken(token), expiry, user.Id);
     }
+
+    /// <summary>
+    /// Produces a 256-bit random token and the hash to store for it.
+    /// </summary>
+    public RefreshTokenPair GenerateRefreshToken()
+    {
+        var raw = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+        return new RefreshTokenPair(raw, HashRefreshToken(raw));
+    }
+
+    /// <summary>
+    /// SHA-256 rather than a password hash: the token is a high-entropy random value, not a
+    /// guessable secret, so a deliberately slow KDF would add latency to every refresh
+    /// without making the token any harder to attack.
+    /// </summary>
+    public string HashRefreshToken(string rawToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(rawToken);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
+    }
+
+    private static string Base64UrlEncode(byte[] bytes)
+        => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

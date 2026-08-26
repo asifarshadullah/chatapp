@@ -18,7 +18,8 @@ public class IdentityServiceTests
     private static IdentityService Build(out FakeUserStore store)
     {
         store = new FakeUserStore();
-        return new IdentityService(store, new FakeTokenGenerator());
+        return new IdentityService(store, new FakeTokenGenerator(),
+            new FakeRefreshTokenStore(), new FakeRefreshTokenSettings());
     }
 
     // ── Phase 1 Cycle 1.1 ────────────────────────────────────────────────────
@@ -155,6 +156,17 @@ public class FakeUserStore : IUserStore
 
 public class FakeTokenGenerator : ITokenGenerator
 {
+    private int _counter;
+
     public TokenDto Generate(AppUser user)
-        => new("fake.jwt.token", DateTime.UtcNow.AddHours(1), user.Id);
+        => new($"fake.jwt.token.{Interlocked.Increment(ref _counter)}", DateTime.UtcNow.AddHours(1), user.Id);
+
+    public RefreshTokenPair GenerateRefreshToken()
+    {
+        var raw = $"raw-refresh-{Guid.NewGuid():N}";
+        return new RefreshTokenPair(raw, HashRefreshToken(raw));
+    }
+
+    /// <summary>A reversible stand-in for SHA-256 — the service only needs it to be stable.</summary>
+    public string HashRefreshToken(string rawToken) => $"hash::{rawToken}";
 }

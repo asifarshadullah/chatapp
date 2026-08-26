@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Chat.Api.Contracts;
 using Chat.Identity.Application.DTOs;
 using Chat.Identity.Application.Interfaces;
 using Microsoft.AspNetCore.Authentication;
@@ -16,24 +17,36 @@ namespace Chat.Api.Controllers;
 [Route("auth")]
 public class AuthController : ControllerBase
 {
-    private readonly IIdentityService _identityService;
+    /// <summary>
+    /// Name of the http-only cookie carrying the refresh token. Scoped to /auth so it is not
+    /// attached to ordinary API calls that have no use for it.
+    /// </summary>
+    private const string RefreshCookieName = "refresh_token";
+    private const string RefreshCookiePath = "/auth";
 
-    public AuthController(IIdentityService identityService)
+    private readonly IIdentityService _identityService;
+    private readonly IRefreshTokenSettings _refreshSettings;
+    private readonly IWebHostEnvironment _environment;
+
+    public AuthController(IIdentityService identityService,
+        IRefreshTokenSettings refreshSettings, IWebHostEnvironment environment)
     {
         _identityService = identityService;
+        _refreshSettings = refreshSettings;
+        _environment = environment;
     }
 
     /// <summary>Register a new user with email and password. Returns a JWT on success.</summary>
     [HttpPost("register")]
-    [ProducesResponseType(typeof(TokenDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<TokenDto>> Register(
+    public async Task<ActionResult<AuthResponse>> Register(
         [FromBody] RegisterDto dto, CancellationToken ct)
     {
         try
         {
             var result = await _identityService.RegisterAsync(dto, ct);
-            return Ok(result);
+            return Ok(IssueSession(result));
         }
         catch (InvalidOperationException ex)
         {
@@ -43,15 +56,15 @@ public class AuthController : ControllerBase
 
     /// <summary>Log in with email and password. Returns a JWT on success.</summary>
     [HttpPost("login")]
-    [ProducesResponseType(typeof(TokenDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<TokenDto>> Login(
+    public async Task<ActionResult<AuthResponse>> Login(
         [FromBody] LoginDto dto, CancellationToken ct)
     {
         try
         {
             var result = await _identityService.LoginAsync(dto, ct);
-            return Ok(result);
+            return Ok(IssueSession(result));
         }
         catch (UnauthorizedAccessException)
         {
@@ -75,7 +88,7 @@ public class AuthController : ControllerBase
     /// Reads the authenticated principal, issues our JWT.
     /// </summary>
     [HttpGet("callback/google")]
-    public async Task<ActionResult<TokenDto>> GoogleCallback(CancellationToken ct)
+    public async Task<ActionResult<AuthResponse>> GoogleCallback(CancellationToken ct)
     {
         var result = await HttpContext.AuthenticateAsync("ExternalCookie");
         if (!result.Succeeded || result.Principal is null)
@@ -89,7 +102,7 @@ public class AuthController : ControllerBase
 
         var token = await _identityService.HandleExternalCallbackAsync(
             "Google", providerKey, email, name, ct);
-        return Ok(token);
+        return Ok(IssueSession(token));
     }
 
     /// <summary>Returns the authenticated caller's profile. Requires a valid JWT.</summary>
@@ -104,6 +117,80 @@ public class AuthController : ControllerBase
         var profile = await _identityService.GetUserAsync(currentUser.UserId, ct);
         return profile is null ? NotFound() : Ok(profile);
     }
+
+    /// <summary>
+    /// Exchanges the refresh cookie for a new access token, rotating the cookie.
+    ///
+    /// Deliberately not [Authorize]: the whole point is to renew after the access token has
+    /// already lapsed, so requiring one would make the endpoint useless.
+    /// </summary>
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(AuthResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<AuthResponse>> Refresh(CancellationToken ct)
+    {
+        var raw = Request.Cookies[RefreshCookieName];
+        if (string.IsNullOrWhiteSpace(raw))
+            return Unauthorized();
+
+        try
+        {
+            var result = await _identityService.RefreshAsync(raw, ct);
+            return Ok(IssueSession(result));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // The credential is spent, unknown, expired or replayed — the client cannot act
+            // on the difference, and disclosing it would let a caller probe for live tokens.
+            ClearRefreshCookie();
+            return Unauthorized();
+        }
+    }
+
+    /// <summary>
+    /// Signs out by revoking the token's family and clearing the cookie, so signing out ends
+    /// the ability to obtain new access tokens rather than only discarding client state.
+    /// </summary>
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(CancellationToken ct)
+    {
+        await _identityService.LogoutAsync(Request.Cookies[RefreshCookieName], ct);
+        ClearRefreshCookie();
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Moves the refresh token out of the DTO and into an http-only cookie, so it never
+    /// reaches the response body.
+    /// </summary>
+    private AuthResponse IssueSession(TokenDto token)
+    {
+        if (!string.IsNullOrWhiteSpace(token.RefreshToken))
+            Response.Cookies.Append(RefreshCookieName, token.RefreshToken,
+                CookieOptions(DateTimeOffset.UtcNow.Add(_refreshSettings.Lifetime)));
+
+        return AuthResponse.From(token);
+    }
+
+    private void ClearRefreshCookie()
+        => Response.Cookies.Append(RefreshCookieName, string.Empty,
+            CookieOptions(DateTimeOffset.UnixEpoch));
+
+    /// <summary>
+    /// HttpOnly always, so script cannot read the credential. Secure everywhere except
+    /// development, where the API is plain HTTP on localhost and a Secure cookie would simply
+    /// never be sent. SameSite=Lax rather than Strict so the OAuth redirect back into the app
+    /// still carries it; the refresh endpoint is a POST, which Lax withholds cross-site.
+    /// </summary>
+    private Microsoft.AspNetCore.Http.CookieOptions CookieOptions(DateTimeOffset expires) => new()
+    {
+        HttpOnly = true,
+        Secure = !_environment.IsDevelopment(),
+        SameSite = SameSiteMode.Lax,
+        Path = RefreshCookiePath,
+        Expires = expires
+    };
 
     /// <summary>Probe endpoint for AdminOnly policy integration tests. Returns 200 for Admin, 403 otherwise.</summary>
     [HttpGet("admin-probe")]

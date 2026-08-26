@@ -12,6 +12,11 @@ vi.mock('../../services/authService', () => ({
     register: vi.fn(),
     logout: vi.fn(),
     getToken: vi.fn().mockReturnValue(null),
+    getValidToken: vi.fn(),
+    hasSession: vi.fn().mockReturnValue(false),
+    restoreSession: vi.fn().mockResolvedValue(false),
+    refresh: vi.fn(),
+    clearLocal: vi.fn(),
   },
 }))
 
@@ -40,6 +45,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(signalRService.start).mockResolvedValue(undefined)
   vi.mocked(signalRService.stop).mockResolvedValue(undefined)
+  vi.mocked(authService.hasSession).mockReturnValue(false)
+  vi.mocked(authService.restoreSession).mockResolvedValue(false)
 })
 
 // ── Cycle FA3.1 ──────────────────────────────────────────────────────────────
@@ -135,4 +142,38 @@ it('returns to the sign in form when the session has expired', async () => {
   expect(await screen.findByLabelText(/password/i)).toBeInTheDocument()
   expect(authService.logout).toHaveBeenCalled()
   expect(signalRService.stop).toHaveBeenCalled()
+})
+
+// ── Restoring a lapsed session on load ───────────────────────────────────────
+
+it('restores a session whose access token lapsed instead of showing sign in', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(false)
+  vi.mocked(authService.hasSession).mockReturnValue(true)
+  vi.mocked(authService.restoreSession).mockResolvedValue(true)
+
+  render(<App />)
+
+  // A lapsed access token with a live refresh cookie is still a signed-in user.
+  expect(await screen.findByRole('textbox')).toBeInTheDocument()
+  expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument()
+})
+
+it('shows sign in when the lapsed session cannot be restored', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(false)
+  vi.mocked(authService.hasSession).mockReturnValue(true)
+  vi.mocked(authService.restoreSession).mockResolvedValue(false)
+
+  render(<App />)
+
+  expect(await screen.findByLabelText(/password/i)).toBeInTheDocument()
+})
+
+it('does not attempt restoration when no session was established', () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(false)
+  vi.mocked(authService.hasSession).mockReturnValue(false)
+
+  render(<App />)
+
+  expect(authService.restoreSession).not.toHaveBeenCalled()
+  expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
 })

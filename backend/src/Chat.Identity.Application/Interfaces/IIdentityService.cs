@@ -12,4 +12,14 @@ public interface IIdentityService
     Task<TokenDto> HandleExternalCallbackAsync(string provider, string providerKey,
         string email, string displayName, CancellationToken ct = default);
     Task<UserProfileDto?> GetUserAsync(Guid userId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Exchanges a raw refresh token for a new access token and a rotated refresh token.
+    /// Throws <see cref="UnauthorizedAccessException"/> when the token cannot be exchanged,
+    /// without distinguishing why.
+    /// </summary>
+    Task<TokenDto> RefreshAsync(string rawRefreshToken, CancellationToken ct = default);
+
+    /// <summary>Revokes the family the given token belongs to. A no-op when it is absent.</summary>
+    Task LogoutAsync(string? rawRefreshToken, CancellationToken ct = default);
 }

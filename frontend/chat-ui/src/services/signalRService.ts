@@ -1,21 +1,16 @@
 import * as signalR from '@microsoft/signalr'
 import { authService } from './authService'
+import {
+  SessionExpiredError,
+  SESSION_EXPIRED_MESSAGE,
+  CONNECT_FAILED_MESSAGE,
+} from './sessionErrors'
 
-/**
- * Raised when a connect is attempted with no usable token — the session ended
- * rather than the server being unreachable. Callers must tell those two apart:
- * reporting an expired session as "server down" sends users to debug their
- * infrastructure when all they need to do is sign in again.
- */
-export class SessionExpiredError extends Error {
-  constructor() {
-    super('Session expired')
-    this.name = 'SessionExpiredError'
-  }
-}
-
-export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please sign in again.'
-export const CONNECT_FAILED_MESSAGE = 'Failed to connect to chat server.'
+export {
+  SessionExpiredError,
+  SESSION_EXPIRED_MESSAGE,
+  CONNECT_FAILED_MESSAGE,
+} from './sessionErrors'
 
 export interface StreamCallbacks {
   onConversationId: (id: string) => void
@@ -33,13 +28,10 @@ class SignalRService {
     if (!this._connection) {
       this._connection = new signalR.HubConnectionBuilder()
         .withUrl('/chatHub', {
-          // Throwing beats sending '': an empty bearer token makes the hub
+          // Renews if the stored token is stale, and awaits a renewal already in
+          // flight. Throwing beats sending '': an empty bearer token makes the hub
           // answer 401, which surfaces as an opaque transport failure.
-          accessTokenFactory: () => {
-            const token = authService.getToken()
-            if (!token) throw new SessionExpiredError()
-            return token
-          },
+          accessTokenFactory: () => authService.getValidToken(),
         })
         .withAutomaticReconnect()
         .build()
@@ -58,12 +50,16 @@ class SignalRService {
    */
   async start(): Promise<void> {
     if (this.connection.state === signalR.HubConnectionState.Connected) return
-    if (!authService.getToken()) throw new SessionExpiredError()
     if (this._startPromise) return this._startPromise
 
     const generation = ++this._generation
     const attempt = (async () => {
       try {
+        // Renew up front rather than relying on the token factory alone: SignalR wraps a
+        // rejected factory in its own transport error, which would reach the UI as "server
+        // unreachable" when the truth is that the session ended.
+        await authService.getValidToken()
+
         while (this.connection.state === signalR.HubConnectionState.Disconnecting) {
           await new Promise((resolve) => setTimeout(resolve, 50))
         }

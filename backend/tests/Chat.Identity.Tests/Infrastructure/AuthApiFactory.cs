@@ -123,30 +123,63 @@ public class AuthApiFactory : WebApplicationFactory<Program>
     }
 }
 
+/// <summary>
+/// Stands in for the real service in API tests. It models just enough of the refresh
+/// lifecycle — rotation, replay refusal, revocation — for the controller's cookie handling
+/// to be exercised. The rules themselves are tested in IdentityServiceRefreshTests.
+/// </summary>
 public class FakeIdentityService : IIdentityService
 {
+    private int _counter;
+    private readonly HashSet<string> _live = new();
+    private readonly HashSet<string> _consumed = new();
+
+    /// <summary>Marks every outstanding token unusable, standing in for expiry.</summary>
+    public void ExpireAll() => _live.Clear();
+
+    private TokenDto Issue()
+    {
+        var refresh = $"refresh-token-{Interlocked.Increment(ref _counter)}";
+        _live.Add(refresh);
+        return new TokenDto("fake.jwt.token", DateTime.UtcNow.AddHours(1),
+            AuthApiFactory.TestUserId, refresh);
+    }
+
     public Task<TokenDto> RegisterAsync(RegisterDto dto, CancellationToken ct = default)
-        => Task.FromResult(new TokenDto(
-            "fake.jwt.token",
-            DateTime.UtcNow.AddHours(1),
-            AuthApiFactory.TestUserId));
+        => Task.FromResult(Issue());
 
     public Task<TokenDto> LoginAsync(LoginDto dto, CancellationToken ct = default)
-        => Task.FromResult(new TokenDto(
-            "fake.jwt.token",
-            DateTime.UtcNow.AddHours(1),
-            AuthApiFactory.TestUserId));
+        => Task.FromResult(Issue());
 
     public Task<TokenDto> HandleExternalCallbackAsync(string provider, string providerKey,
         string email, string displayName, CancellationToken ct = default)
-        => Task.FromResult(new TokenDto(
-            "fake.jwt.token",
-            DateTime.UtcNow.AddHours(1),
-            AuthApiFactory.TestUserId));
+        => Task.FromResult(Issue());
 
     public Task<UserProfileDto?> GetUserAsync(Guid userId, CancellationToken ct = default)
         => Task.FromResult<UserProfileDto?>(new UserProfileDto(
             AuthApiFactory.TestUserId, "test@example.com", "Test User", "Individual"));
+
+    public Task<TokenDto> RefreshAsync(string rawRefreshToken, CancellationToken ct = default)
+    {
+        if (_consumed.Contains(rawRefreshToken))
+        {
+            // Replay: revoke everything outstanding, then refuse.
+            _live.Clear();
+            throw new UnauthorizedAccessException("Invalid refresh token.");
+        }
+
+        if (!_live.Remove(rawRefreshToken))
+            throw new UnauthorizedAccessException("Invalid refresh token.");
+
+        _consumed.Add(rawRefreshToken);
+        return Task.FromResult(Issue());
+    }
+
+    public Task LogoutAsync(string? rawRefreshToken, CancellationToken ct = default)
+    {
+        if (!string.IsNullOrWhiteSpace(rawRefreshToken)) _live.Clear();
+        return Task.CompletedTask;
+    }
 }
 
 public class FakeAiProvider : IAiProvider

@@ -37,6 +37,8 @@ describe('login', () => {
     expect(fetch).toHaveBeenCalledWith('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      // Required for the browser to store the http-only refresh cookie.
+      credentials: 'include',
       body: JSON.stringify({ email: 'user@test.com', password: 'Password123' }),
     })
   })
@@ -74,6 +76,7 @@ describe('register', () => {
     expect(fetch).toHaveBeenCalledWith('/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ email: 'new@test.com', password: 'Password123', displayName: 'Alice' }),
     })
   })
@@ -82,12 +85,28 @@ describe('register', () => {
 // ── Cycle FA1.3 ──────────────────────────────────────────────────────────────
 
 describe('logout', () => {
-  it('clears the stored token', () => {
+  it('clears the stored token', async () => {
     localStorage.setItem('auth_token', 'some-token')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 204 }))
 
-    authService.logout()
+    await authService.logout()
 
     expect(authService.getToken()).toBeNull()
+  })
+
+  it('revokes the refresh credential on the server', async () => {
+    localStorage.setItem('auth_token', 'some-token')
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await authService.logout()
+
+    // Signing out must end the ability to obtain new access tokens, not just discard
+    // client state.
+    expect(fetchMock).toHaveBeenCalledWith('/auth/logout', expect.objectContaining({
+      method: 'POST',
+      credentials: 'include',
+    }))
   })
 })
 

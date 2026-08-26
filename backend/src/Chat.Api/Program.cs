@@ -70,9 +70,16 @@ builder.Services.AddScoped<IPlanFeatureService, RealPlanFeatureService>();
 
 // ── Identity ──────────────────────────────────────────────────────────────────
 builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+
+// Refresh-token policy. Registered as the Application-layer interface as well, so
+// IdentityService depends on the contract rather than on the Options type.
+builder.Services.Configure<RefreshTokenSettings>(builder.Configuration.GetSection("RefreshToken"));
+builder.Services.AddSingleton<IRefreshTokenSettings>(sp =>
+    sp.GetRequiredService<IOptions<RefreshTokenSettings>>().Value);
 builder.Services.Configure<GoogleAuthSettings>(builder.Configuration.GetSection("Google"));
 
 builder.Services.AddScoped<IUserStore, MongoUserStore>();
+builder.Services.AddScoped<IRefreshTokenStore, MongoRefreshTokenStore>();
 builder.Services.AddScoped<ITokenGenerator, JwtTokenGenerator>();
 builder.Services.AddScoped<IIdentityService, IdentityService>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
