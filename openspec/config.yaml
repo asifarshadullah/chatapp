@@ -1,0 +1,50 @@
+schema: spec-driven
+
+context: |
+  ChatApp — a ChatGPT-style real-time chat application.
+
+  Backend: .NET 8, ASP.NET Core controllers, SignalR server streaming
+  (IAsyncEnumerable), MongoDB 7 via Docker Compose, Ollama for local LLM
+  inference, Stripe for billing, JWT + Google OAuth for auth.
+  Frontend: React 19, TypeScript 5, Vite, MUI.
+  Tests: xUnit + FluentAssertions (backend), Vitest + React Testing Library
+  (frontend), Playwright (e2e).
+
+  Architecture: three independent bounded contexts — Chat, Identity, Billing —
+  each with its own Domain, Application and Infrastructure projects under
+  backend/src/, named Chat.*, Chat.Identity.*, Chat.Billing.*. Only Chat.Api
+  references all three, as the composition root. Contexts share nothing but
+  Guid UserId; no domain type crosses a context boundary. Dependencies point
+  inward: Domain has none, Application defines the interfaces it needs, and
+  Infrastructure supplies the implementations.
+
+  Conventions: this project is built test-first — see the tdd skill. Commit
+  and git conventions live in CLAUDE.md. Architectural reasoning and past
+  trade-off decisions live in docs/architecture/.
+
+rules:
+  proposal:
+    - State which bounded context the change belongs to, and justify it if the
+      answer is not obvious.
+    - Include a "Non-goals" section.
+  design:
+    - Name the layer each new type belongs to and why, following the inward
+      dependency rule.
+    - Call out any new interface and say which layer defines it versus
+      implements it.
+  tasks:
+    - Every task that changes behaviour starts with a failing test, per the
+      tdd skill.
+    - Keep tasks small enough to finish and verify in one sitting.
+
+operations:
+  apply:
+    guidance:
+      - Run the checks CI runs before reporting a task done: npm run typecheck,
+        npm run lint and npm run test:run in frontend/chat-ui, and
+        dotnet test backend/ChatApp.sln.
+      - Playwright e2e is not in CI; run it locally when the chat path changes.
+  archive:
+    guidance:
+      - Confirm the shipped behaviour matches the delta spec before archiving;
+        correct the spec if the implementation taught you otherwise.
