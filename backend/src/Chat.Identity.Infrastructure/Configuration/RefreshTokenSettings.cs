@@ -9,8 +9,13 @@ namespace Chat.Identity.Infrastructure.Configuration;
 /// </summary>
 public class RefreshTokenSettings : IRefreshTokenSettings
 {
-    /// <summary>How long a refresh token stays exchangeable.</summary>
-    public int LifetimeDays { get; set; } = 14;
+    /// <summary>
+    /// How long a refresh token stays exchangeable, and so how long a session can be
+    /// continued without signing in again. Short because a refresh token is the one
+    /// long-lived credential in the system: it is revocable, but only once its theft has
+    /// been noticed.
+    /// </summary>
+    public int LifetimeDays { get; set; } = 1;
 
     public TimeSpan Lifetime => TimeSpan.FromDays(LifetimeDays);
 }

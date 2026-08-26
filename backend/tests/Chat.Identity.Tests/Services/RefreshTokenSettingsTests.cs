@@ -33,6 +33,6 @@ public class RefreshTokenSettingsTests
     {
         var settings = Bind();
 
-        settings.Lifetime.Should().Be(TimeSpan.FromDays(14));
+        settings.Lifetime.Should().Be(TimeSpan.FromDays(1));
     }
 }

@@ -160,3 +160,13 @@ fall back to the current behaviour of ending the session at expiry.
 - Refresh-token lifetime and the staleness margin that triggers early renewal are settings,
   not structure. Sensible starting values (14 days; renew with under 5 minutes remaining) go
   into configuration and can be tuned without touching the specs or the task breakdown.
+
+**Resolved after implementation.** The shipped values are a one-day refresh lifetime and a
+one-minute renewal margin, against seven-minute access tokens. The margin never became a
+server setting: the client owns it, because it is the client that decides when to renew, and
+a configured value that nothing read was worse than no setting at all.
+
+A day rather than a fortnight because the refresh token is the only long-lived credential
+here and revocation depends on someone noticing a theft. The prediction that these are
+settings rather than structure held: changing them touched configuration and one default, and
+no requirement in the spec, which states retention and expiry without naming a duration.
