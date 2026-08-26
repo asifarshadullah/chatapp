@@ -40,9 +40,9 @@ rules:
 operations:
   apply:
     guidance:
-      - Run the checks CI runs before reporting a task done: npm run typecheck,
-        npm run lint and npm run test:run in frontend/chat-ui, and
-        dotnet test backend/ChatApp.sln.
+      - "Run the checks CI runs before reporting a task done: npm run
+        typecheck, npm run lint and npm run test:run in frontend/chat-ui, and
+        dotnet test backend/ChatApp.sln."
       - Playwright e2e is not in CI; run it locally when the chat path changes.
   archive:
     guidance:
