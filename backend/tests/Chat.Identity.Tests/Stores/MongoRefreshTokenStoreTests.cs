@@ -42,9 +42,104 @@ public class MongoRefreshTokenStoreTests : IClassFixture<RefreshTokenDbFixture>
         _sut = new MongoRefreshTokenStore(fixture.Database);
     }
 
-    private static RefreshToken NewToken(string hash, Guid? familyId = null, Guid? userId = null)
+    private static RefreshToken NewToken(string hash, Guid? familyId = null, Guid? userId = null,
+        bool persistent = false)
         => new(hash, userId ?? Guid.NewGuid(), familyId ?? Guid.NewGuid(),
-            DateTime.UtcNow.AddDays(14));
+            DateTime.UtcNow.AddDays(14), persistent);
+
+    // ── Task 2.2/2.3 — the session's chosen length round-trips ───────────────
+
+    [Fact]
+    public async Task AddAsync_ThenFindByHash_KeepsPersistence()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}", persistent: true);
+
+        await _sut.AddAsync(token);
+
+        (await _sut.FindByHashAsync(token.TokenHash))!.Persistent.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AddAsync_ThenFindByHash_KeepsTheAbsenceOfPersistence()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}");
+
+        await _sut.AddAsync(token);
+
+        (await _sut.FindByHashAsync(token.TokenHash))!.Persistent.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ADocumentStoredBeforePersistenceExisted_ReadsAsNotPersistent()
+    {
+        // Exactly the shape written by the previous version of the schema: no Persistent
+        // field at all. Such a credential was issued under the ordinary lifetime and must
+        // not be promoted to a remembered one by the deploy that adds the field.
+        var token = NewToken($"hash-{Guid.NewGuid():N}", persistent: true);
+        await _sut.AddAsync(token);
+        await _fixture.Database.GetCollection<MongoDB.Bson.BsonDocument>("refreshTokens")
+            .UpdateOneAsync(
+                new MongoDB.Bson.BsonDocument("TokenHash", token.TokenHash),
+                new MongoDB.Bson.BsonDocument("$unset",
+                    new MongoDB.Bson.BsonDocument("Persistent", "")));
+
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+
+        found.Should().NotBeNull();
+        found!.Persistent.Should().BeFalse();
+    }
+
+    // ── Task 7.3 — a consumed credential is reaped on its own schedule ───────
+
+    [Fact]
+    public async Task Consuming_PersistsThePulledInExpiry()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}", persistent: true);
+        await _sut.AddAsync(token);
+
+        token.Consume(DateTime.UtcNow);
+        await _sut.UpdateAsync(token);
+
+        // The TTL index reaps on ExpiresAt, so the pulled-in value has to reach storage —
+        // otherwise the record still sits there for the whole of the session's lifetime.
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+        found!.ExpiresAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+        found.ExpiresAt.Should().BeBefore(DateTime.UtcNow.AddDays(1));
+    }
+
+    [Fact]
+    public async Task AConsumedCredentialIsStillFoundWithinTheRetentionWindow()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}", persistent: true);
+        await _sut.AddAsync(token);
+        token.Consume(DateTime.UtcNow);
+        await _sut.UpdateAsync(token);
+
+        // Replay detection depends on the record outliving the credential. The retention
+        // margin, not the session lifetime, is what buys that time.
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+
+        found.Should().NotBeNull();
+        found!.ConsumedAt.Should().NotBeNull();
+        MongoRefreshTokenStore.RetentionAfterExpiry.Should().BeGreaterThan(TimeSpan.Zero);
+    }
+
+    [Fact]
+    public async Task ReplayingAConsumedCredential_StillRevokesTheFamily()
+    {
+        var familyId = Guid.NewGuid();
+        var consumed = NewToken($"hash-{Guid.NewGuid():N}", familyId, persistent: true);
+        var successor = NewToken($"hash-{Guid.NewGuid():N}", familyId, persistent: true);
+        await _sut.AddAsync(consumed);
+        await _sut.AddAsync(successor);
+        consumed.Consume(DateTime.UtcNow);
+        await _sut.UpdateAsync(consumed);
+
+        var found = await _sut.FindByHashAsync(consumed.TokenHash);
+        await _sut.RevokeFamilyAsync(found!.FamilyId, DateTime.UtcNow);
+
+        (await _sut.FindByHashAsync(successor.TokenHash))!.RevokedAt.Should().NotBeNull();
+    }
 
     // ── Task 4.1 — round-trip ────────────────────────────────────────────────
 

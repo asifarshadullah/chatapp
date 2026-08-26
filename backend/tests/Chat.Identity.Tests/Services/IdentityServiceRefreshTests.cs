@@ -291,4 +291,7 @@ public class FakeRefreshTokenStore : IRefreshTokenStore
 public class FakeRefreshTokenSettings : IRefreshTokenSettings
 {
     public TimeSpan Lifetime => TimeSpan.FromDays(14);
+
+    /// <summary>Deliberately far from Lifetime, so a test can tell which one was used.</summary>
+    public TimeSpan PersistentLifetime => TimeSpan.FromDays(60);
 }

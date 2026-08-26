@@ -133,27 +133,40 @@ public class FakeIdentityService : IIdentityService
     private int _counter;
     private readonly HashSet<string> _live = new();
     private readonly HashSet<string> _consumed = new();
+    private readonly Dictionary<string, bool> _persistence = new();
 
     /// <summary>Marks every outstanding token unusable, standing in for expiry.</summary>
     public void ExpireAll() => _live.Clear();
 
-    private TokenDto Issue()
+    /// <summary>The lifetimes the controller's cookie expiry is checked against.</summary>
+    public static readonly TimeSpan OrdinaryLifetime = TimeSpan.FromDays(14);
+    public static readonly TimeSpan RememberedLifetime = TimeSpan.FromDays(60);
+
+    /// <summary>The choice the last call was made with, for asserting it was passed on.</summary>
+    public bool? LastStaySignedIn { get; private set; }
+
+    private TokenDto Issue(bool persistent = false)
     {
+        LastStaySignedIn = persistent;
         var refresh = $"refresh-token-{Interlocked.Increment(ref _counter)}";
         _live.Add(refresh);
+        _persistence[refresh] = persistent;
         return new TokenDto("fake.jwt.token", DateTime.UtcNow.AddHours(1),
-            AuthApiFactory.TestUserId, refresh);
+            AuthApiFactory.TestUserId, refresh,
+            DateTime.UtcNow.Add(persistent ? RememberedLifetime : OrdinaryLifetime),
+            persistent);
     }
 
     public Task<TokenDto> RegisterAsync(RegisterDto dto, CancellationToken ct = default)
-        => Task.FromResult(Issue());
+        => Task.FromResult(Issue(dto.StaySignedIn));
 
     public Task<TokenDto> LoginAsync(LoginDto dto, CancellationToken ct = default)
-        => Task.FromResult(Issue());
+        => Task.FromResult(Issue(dto.StaySignedIn));
 
     public Task<TokenDto> HandleExternalCallbackAsync(string provider, string providerKey,
-        string email, string displayName, CancellationToken ct = default)
-        => Task.FromResult(Issue());
+        string email, string displayName, bool staySignedIn = false,
+        CancellationToken ct = default)
+        => Task.FromResult(Issue(staySignedIn));
 
     public Task<UserProfileDto?> GetUserAsync(Guid userId, CancellationToken ct = default)
         => Task.FromResult<UserProfileDto?>(new UserProfileDto(
@@ -172,7 +185,8 @@ public class FakeIdentityService : IIdentityService
             throw new UnauthorizedAccessException("Invalid refresh token.");
 
         _consumed.Add(rawRefreshToken);
-        return Task.FromResult(Issue());
+        // A successor inherits the session's chosen length, as the real service does.
+        return Task.FromResult(Issue(_persistence.GetValueOrDefault(rawRefreshToken)));
     }
 
     public Task LogoutAsync(string? rawRefreshToken, CancellationToken ct = default)

@@ -24,15 +24,19 @@ public class AuthController : ControllerBase
     private const string RefreshCookieName = "refresh_token";
     private const string RefreshCookiePath = "/auth";
 
+    /// <summary>
+    /// Where the user's "keep me signed in" choice rides across the provider round trip.
+    /// The framework carries authentication properties in its own encrypted, signed state,
+    /// so what comes back is what the challenge wrote and not what a caller supplied.
+    /// </summary>
+    private const string StaySignedInKey = "stay_signed_in";
+
     private readonly IIdentityService _identityService;
-    private readonly IRefreshTokenSettings _refreshSettings;
     private readonly IWebHostEnvironment _environment;
 
-    public AuthController(IIdentityService identityService,
-        IRefreshTokenSettings refreshSettings, IWebHostEnvironment environment)
+    public AuthController(IIdentityService identityService, IWebHostEnvironment environment)
     {
         _identityService = identityService;
-        _refreshSettings = refreshSettings;
         _environment = environment;
     }
 
@@ -72,14 +76,18 @@ public class AuthController : ControllerBase
         }
     }
 
-    /// <summary>Initiates Google OIDC login by challenging with the Google scheme.</summary>
+    /// <summary>
+    /// Initiates Google OIDC login by challenging with the Google scheme, carrying the
+    /// user's "keep me signed in" choice through to the callback.
+    /// </summary>
     [HttpGet("google")]
-    public IActionResult GoogleLogin()
+    public IActionResult GoogleLogin([FromQuery] bool staySignedIn = false)
     {
         var props = new AuthenticationProperties
         {
             RedirectUri = Url.Action(nameof(GoogleCallback), "Auth")
         };
+        props.Items[StaySignedInKey] = staySignedIn.ToString();
         return Challenge(props, GoogleDefaults.AuthenticationScheme);
     }
 
@@ -100,8 +108,13 @@ public class AuthController : ControllerBase
         var email = result.Principal.FindFirstValue(ClaimTypes.Email) ?? string.Empty;
         var name = result.Principal.FindFirstValue(ClaimTypes.Name) ?? email;
 
+        // Anything other than what the challenge wrote — absent, empty, or unparseable —
+        // is not the user's choice, and falls back to the shorter session.
+        var staySignedIn = result.Properties?.Items.TryGetValue(StaySignedInKey, out var carried) == true
+            && bool.TryParse(carried, out var parsed) && parsed;
+
         var token = await _identityService.HandleExternalCallbackAsync(
-            "Google", providerKey, email, name, ct);
+            "Google", providerKey, email, name, staySignedIn, ct);
         return Ok(IssueSession(token));
     }
 
@@ -167,8 +180,17 @@ public class AuthController : ControllerBase
     private AuthResponse IssueSession(TokenDto token)
     {
         if (!string.IsNullOrWhiteSpace(token.RefreshToken))
-            Response.Cookies.Append(RefreshCookieName, token.RefreshToken,
-                CookieOptions(DateTimeOffset.UtcNow.Add(_refreshSettings.Lifetime)));
+        {
+            // Expires only for a session the user asked to be remembered; without it the
+            // browser drops the cookie when it closes, which is what declining means on a
+            // shared machine. The expiry comes from the service so the cookie can never
+            // outlive the credential it carries.
+            DateTimeOffset? expires = token.RefreshTokenPersistent
+                ? new DateTimeOffset(token.RefreshTokenExpiresAt, TimeSpan.Zero)
+                : null;
+
+            Response.Cookies.Append(RefreshCookieName, token.RefreshToken, CookieOptions(expires));
+        }
 
         return AuthResponse.From(token);
     }
@@ -183,7 +205,7 @@ public class AuthController : ControllerBase
     /// never be sent. SameSite=Lax rather than Strict so the OAuth redirect back into the app
     /// still carries it; the refresh endpoint is a POST, which Lax withholds cross-site.
     /// </summary>
-    private Microsoft.AspNetCore.Http.CookieOptions CookieOptions(DateTimeOffset expires) => new()
+    private Microsoft.AspNetCore.Http.CookieOptions CookieOptions(DateTimeOffset? expires) => new()
     {
         HttpOnly = true,
         Secure = !_environment.IsDevelopment(),

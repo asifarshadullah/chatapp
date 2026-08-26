@@ -17,5 +17,14 @@ public class RefreshTokenSettings : IRefreshTokenSettings
     /// </summary>
     public int LifetimeDays { get; set; } = 1;
 
+    /// <summary>
+    /// The same, for a user who asked to stay signed in. Longer because that user has
+    /// weighed the exposure against the nuisance of signing in on their own device and
+    /// chosen; rotation and replay detection guard the window either way.
+    /// </summary>
+    public int PersistentLifetimeDays { get; set; } = 30;
+
     public TimeSpan Lifetime => TimeSpan.FromDays(LifetimeDays);
+
+    public TimeSpan PersistentLifetime => TimeSpan.FromDays(PersistentLifetimeDays);
 }

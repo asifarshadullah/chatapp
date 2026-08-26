@@ -34,7 +34,6 @@ public class AuthControllerCookieTests
 
         var controller = new AuthController(
             new FakeIdentityService(),
-            new FakeRefreshTokenSettings(),
             new StubEnvironment(environmentName))
         {
             ControllerContext = new ControllerContext { HttpContext = http }

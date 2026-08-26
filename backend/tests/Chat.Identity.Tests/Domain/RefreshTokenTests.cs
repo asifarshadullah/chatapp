@@ -42,6 +42,34 @@ public class RefreshTokenTests
         token.RevokedAt.Should().BeNull();
     }
 
+    // ── Task 2.1 — the session's chosen length rides on the credential ───────
+
+    [Fact]
+    public void NewToken_IsNotPersistentUnlessAskedFor()
+    {
+        var token = Issue();
+
+        token.Persistent.Should().BeFalse();
+    }
+
+    [Fact]
+    public void NewToken_RemembersThatItIsPersistent()
+    {
+        var token = new RefreshToken("hash", Guid.NewGuid(), Guid.NewGuid(),
+            Now.AddDays(30), persistent: true);
+
+        token.Persistent.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ReconstructedToken_KeepsItsPersistence()
+    {
+        var token = new RefreshToken(Guid.NewGuid(), "hash", Guid.NewGuid(), Guid.NewGuid(),
+            Now.AddDays(30), consumedAt: null, revokedAt: null, persistent: true);
+
+        token.Persistent.Should().BeTrue();
+    }
+
     [Fact]
     public void ExpiredToken_IsNotUsable()
     {

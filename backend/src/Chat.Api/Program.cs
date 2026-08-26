@@ -73,7 +73,15 @@ builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"))
 
 // Refresh-token policy. Registered as the Application-layer interface as well, so
 // IdentityService depends on the contract rather than on the Options type.
-builder.Services.Configure<RefreshTokenSettings>(builder.Configuration.GetSection("RefreshToken"));
+// Both lifetimes are validated at startup: a remembered session that is no longer than an
+// ordinary one would make the user's "keep me signed in" choice meaningless or harmful, and
+// the only place that is cheap to notice is before the app serves a request.
+builder.Services.AddOptions<RefreshTokenSettings>()
+    .Bind(builder.Configuration.GetSection("RefreshToken"))
+    .Validate(s => s.LifetimeDays > 0, "RefreshToken:LifetimeDays must be greater than zero.")
+    .Validate(s => s.PersistentLifetimeDays > s.LifetimeDays,
+        "RefreshToken:PersistentLifetimeDays must be greater than RefreshToken:LifetimeDays.")
+    .ValidateOnStart();
 builder.Services.AddSingleton<IRefreshTokenSettings>(sp =>
     sp.GetRequiredService<IOptions<RefreshTokenSettings>>().Value);
 builder.Services.Configure<GoogleAuthSettings>(builder.Configuration.GetSection("Google"));

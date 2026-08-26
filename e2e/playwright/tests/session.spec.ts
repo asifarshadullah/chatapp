@@ -15,12 +15,18 @@ test.describe('Session', () => {
   // the family, as it should. Each test therefore establishes its own session.
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  async function signUp(page: import('@playwright/test').Page) {
+  /**
+   * Registers a new account. `staySignedIn` defaults to true because these tests reload and
+   * renew, and a remembered session is the one that survives a browser restart — the case
+   * the rest of the suite assumes.
+   */
+  async function signUp(page: import('@playwright/test').Page, staySignedIn = true) {
     await page.goto('/');
     await page.getByRole('button', { name: 'Register' }).click();
     await page.getByLabel('Email').fill(`session-${Date.now()}-${Math.random().toString(36).slice(2)}@test.local`);
     await page.getByLabel('Password').fill('E2ePassw0rd!');
     await page.getByLabel('Display Name').fill('Session User');
+    if (staySignedIn) await page.getByLabel('Keep me signed in').check();
     await page.getByRole('button', { name: 'Register' }).click();
     await expect(page.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
   }
@@ -109,5 +115,109 @@ test.describe('Session', () => {
 
     // No session marker and no cookie: the sign-in form, not a silent restoration.
     await expect(page.getByLabel('Password')).toBeVisible();
+  });
+
+  // ── Task 6.1 — the choice survives, or does not survive, a browser restart ─
+
+  /**
+   * Reopens the app the way closing and reopening the browser does: session cookies are
+   * gone, persistent ones remain, and sessionStorage is empty while localStorage is not.
+   */
+  async function restartBrowser(
+    context: import('@playwright/test').BrowserContext,
+    browser: import('@playwright/test').Browser,
+  ) {
+    const state = await context.storageState();
+    const restarted = await browser.newContext({
+      storageState: {
+        // expires === -1 marks a cookie the browser holds only for the browsing session.
+        // Both the refresh credential of an unremembered session and the companion beacon
+        // the client reads are such cookies, so filtering here reproduces a real restart.
+        cookies: state.cookies.filter((c) => c.expires !== -1),
+        origins: state.origins,
+      },
+    });
+    return restarted;
+  }
+
+  /** Opening the app in another tab: same cookies, same localStorage, fresh sessionStorage. */
+  async function openSecondTab(context: import('@playwright/test').BrowserContext) {
+    const tab = await context.newPage();
+    await tab.goto('/');
+    return tab;
+  }
+
+  test('a remembered session survives closing the browser', async ({ page, context, browser }) => {
+    await signUp(page, true);
+
+    const restarted = await restartBrowser(context, browser);
+    const reopened = await restarted.newPage();
+    await reopened.goto('/');
+
+    // Straight back into the app: the refresh cookie outlived the browsing session.
+    await expect(reopened.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+    await expect(reopened.getByLabel('Password')).toHaveCount(0);
+    await restarted.close();
+  });
+
+  test('an ordinary session does not survive closing the browser', async ({ page, context, browser }) => {
+    await signUp(page, false);
+
+    const restarted = await restartBrowser(context, browser);
+    const reopened = await restarted.newPage();
+    await reopened.goto('/');
+
+    // The credential went with the browsing session, which is what declining asks for.
+    await expect(reopened.getByLabel('Password')).toBeVisible();
+    await expect(reopened.getByPlaceholder('Ask anything')).toHaveCount(0);
+    await restarted.close();
+  });
+
+  test('an ordinary session still works while the browser stays open', async ({ page }) => {
+    await signUp(page, false);
+
+    await page.reload();
+
+    // Declining to be remembered is not the same as being signed out on reload.
+    await expect(page.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+  });
+
+  test('a second tab of an ordinary session is signed in', async ({ page, context }) => {
+    await signUp(page, false);
+
+    const second = await openSecondTab(context);
+
+    // Declining to be remembered ends the session at browser close, not at the tab it
+    // started in. This is the regression the sessionStorage marker introduced.
+    await expect(second.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+    await expect(second.getByLabel('Password')).toHaveCount(0);
+    await second.close();
+  });
+
+  test('a second tab of a remembered session is signed in', async ({ page, context }) => {
+    await signUp(page, true);
+
+    const second = await openSecondTab(context);
+
+    await expect(second.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+    await second.close();
+  });
+
+  test('an ordinary session makes no renewal attempt after a restart', async ({ page, context, browser }) => {
+    await signUp(page, false);
+
+    const restarted = await restartBrowser(context, browser);
+    const reopened = await restarted.newPage();
+    let renewalAttempted = false;
+    reopened.on('request', (r) => {
+      if (r.url().includes('/auth/refresh')) renewalAttempted = true;
+    });
+    await reopened.goto('/');
+    await expect(reopened.getByLabel('Password')).toBeVisible();
+
+    // A request that could only be refused would flash the app shell on the way to the
+    // sign-in form; the client knows the credential went with the browsing session.
+    expect(renewalAttempted).toBe(false);
+    await restarted.close();
   });
 });

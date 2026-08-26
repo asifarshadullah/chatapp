@@ -10,12 +10,28 @@ const TOKEN_KEY = 'auth_token'
 const TOKEN_EXPIRY_KEY = 'auth_token_expiry'
 
 /**
- * Marks that a session was established. The refresh credential is an http-only cookie that
- * script cannot see, so without this the client cannot tell "never signed in" from "access
- * token expired and was cleared" — and would show the sign-in form to someone whose refresh
- * cookie is still perfectly good.
+ * Records that a session was established, and which kind. The refresh credential is an
+ * http-only cookie that script cannot see, so without this the client cannot tell "never
+ * signed in" from "access token expired and was cleared" — and would show the sign-in form
+ * to someone whose refresh cookie is still perfectly good.
  */
 const SESSION_KEY = 'auth_session'
+
+const ORDINARY = 'ordinary'
+const REMEMBERED = 'remembered'
+
+/**
+ * A companion cookie whose only job is to expire at the same moment the refresh cookie of an
+ * unremembered session does. Script can read it, unlike the credential itself, so it answers
+ * the one question localStorage cannot: is this still the browsing session the user signed in
+ * during, or did the browser restart and take the credential with it?
+ *
+ * It has to be a cookie rather than sessionStorage because sessionStorage is scoped to a tab.
+ * A second tab starts with an empty one and would look like a browser restart, which is
+ * exactly the bug this replaces. Cookies are shared across tabs and discarded on browser
+ * close — the same lifetime as the credential it stands in for. It carries no secret.
+ */
+const LIVE_COOKIE = 'auth_session_live'
 
 /**
  * How close to expiry an access token may get before it is renewed. A margin rather than
@@ -27,19 +43,34 @@ const SESSION_KEY = 'auth_session'
  */
 const RENEWAL_MARGIN_MS = 60_000
 
+function markLive(): void {
+  // No expires and no max-age: a browser-session cookie, gone when the browser closes.
+  document.cookie = `${LIVE_COOKIE}=1; path=/; samesite=lax`
+}
+
+function clearLive(): void {
+  document.cookie = `${LIVE_COOKIE}=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 GMT`
+}
+
+function isLive(): boolean {
+  return document.cookie
+    .split(';')
+    .some((c) => c.trim().startsWith(`${LIVE_COOKIE}=1`))
+}
+
 class AuthService {
   /** The one renewal in flight, shared by every concurrent caller. */
   private _refreshPromise: Promise<string> | null = null
   private _refreshGeneration = 0
 
-  async login(email: string, password: string): Promise<TokenDto> {
+  async login(email: string, password: string, staySignedIn = false): Promise<TokenDto> {
     const response = await fetch('/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       // The refresh credential comes back as an http-only cookie, which the browser only
       // stores when the request is made with credentials.
       credentials: 'include',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, staySignedIn }),
     })
 
     if (!response.ok) {
@@ -47,16 +78,21 @@ class AuthService {
     }
 
     const dto: TokenDto = await response.json()
-    this._store(dto)
+    this._store(dto, staySignedIn)
     return dto
   }
 
-  async register(email: string, password: string, displayName: string): Promise<TokenDto> {
+  async register(
+    email: string,
+    password: string,
+    displayName: string,
+    staySignedIn = false,
+  ): Promise<TokenDto> {
     const response = await fetch('/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ email, password, displayName }),
+      body: JSON.stringify({ email, password, displayName, staySignedIn }),
     })
 
     if (!response.ok) {
@@ -64,7 +100,7 @@ class AuthService {
     }
 
     const dto: TokenDto = await response.json()
-    this._store(dto)
+    this._store(dto, staySignedIn)
     return dto
   }
 
@@ -88,6 +124,7 @@ class AuthService {
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(TOKEN_EXPIRY_KEY)
     localStorage.removeItem(SESSION_KEY)
+    clearLive()
   }
 
   /**
@@ -95,7 +132,21 @@ class AuthService {
    * is expected to still exist, even once the access token has lapsed.
    */
   hasSession(): boolean {
-    return localStorage.getItem(SESSION_KEY) === 'active'
+    const kind = localStorage.getItem(SESSION_KEY)
+    if (!kind) return false
+
+    // An unremembered session lasts exactly as long as the browsing session. Once the
+    // companion cookie is gone the credential is too, so the record is stale rather than
+    // useful — discard it instead of leaving a renewal to be refused later.
+    if (kind === ORDINARY && !isLive()) {
+      this.clearLocal()
+      return false
+    }
+
+    // Anything else, including the marker written before kinds existed, is treated as
+    // remembered: renewing may fail, but refusing to try would sign a user out for a
+    // deploy they had nothing to do with.
+    return true
   }
 
   /**
@@ -119,6 +170,11 @@ class AuthService {
    * what to render; callers that are about to use the token want getValidToken instead.
    */
   getToken(): string | null {
+    // A token belongs to a session. If the session is over — an unremembered one whose
+    // browsing session ended — the minutes still left on the access token are not the
+    // user's to spend, and hasSession has already discarded the record.
+    if (!this.hasSession()) return null
+
     if (this._isExpired()) {
       localStorage.removeItem(TOKEN_KEY)
       localStorage.removeItem(TOKEN_EXPIRY_KEY)
@@ -182,21 +238,39 @@ class AuthService {
     return attempt
   }
 
-  private _store(dto: TokenDto): void {
+  /**
+   * Records the session and its kind. `persistent` is given at authentication, where the
+   * user made the choice; a renewal omits it and keeps the kind already recorded, so a
+   * renewal can neither promote an ordinary session nor demote a remembered one.
+   */
+  private _store(dto: TokenDto, persistent?: boolean): void {
     localStorage.setItem(TOKEN_KEY, dto.accessToken)
     localStorage.setItem(TOKEN_EXPIRY_KEY, dto.expiresAt)
-    localStorage.setItem(SESSION_KEY, 'active')
+
+    if (persistent !== undefined) {
+      localStorage.setItem(SESSION_KEY, persistent ? REMEMBERED : ORDINARY)
+    } else if (!localStorage.getItem(SESSION_KEY)) {
+      localStorage.setItem(SESSION_KEY, REMEMBERED)
+    }
+
+    // Refreshed on every store, so a long-lived tab keeps the beacon alive for as long as
+    // the browsing session it belongs to.
+    markLive()
+  }
+
+  private _expiry(): string | null {
+    return localStorage.getItem(TOKEN_EXPIRY_KEY)
   }
 
   private _isExpired(): boolean {
-    const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY)
+    const expiry = this._expiry()
     if (!expiry) return false
     return new Date(expiry) <= new Date()
   }
 
   /** Expired, or close enough to expiry that it should be renewed before use. */
   private _isStale(): boolean {
-    const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY)
+    const expiry = this._expiry()
     if (!expiry) return false
     return new Date(expiry).getTime() - Date.now() <= RENEWAL_MARGIN_MS
   }

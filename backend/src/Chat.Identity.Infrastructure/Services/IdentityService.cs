@@ -36,7 +36,7 @@ public class IdentityService : IIdentityService
         user.SetPasswordHash(BCrypt.Net.BCrypt.HashPassword(dto.Password));
         await _store.CreateAsync(user, ct);
 
-        return await IssueSessionAsync(user, ct);
+        return await IssueSessionAsync(user, dto.StaySignedIn, ct);
     }
 
     /// <summary>Verify email/password and return a token. Throws if credentials are invalid.</summary>
@@ -46,7 +46,7 @@ public class IdentityService : IIdentityService
         if (user is null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
             throw new UnauthorizedAccessException("Invalid email or password.");
 
-        return await IssueSessionAsync(user, ct);
+        return await IssueSessionAsync(user, dto.StaySignedIn, ct);
     }
 
     /// <summary>
@@ -54,7 +54,8 @@ public class IdentityService : IIdentityService
     /// unknown; returns an existing user's token if the key is already linked.
     /// </summary>
     public async Task<TokenDto> HandleExternalCallbackAsync(string provider, string providerKey,
-        string email, string displayName, CancellationToken ct = default)
+        string email, string displayName, bool staySignedIn = false,
+        CancellationToken ct = default)
     {
         var user = await _store.FindByLoginAsync(provider, providerKey, ct);
 
@@ -65,7 +66,7 @@ public class IdentityService : IIdentityService
             await _store.CreateAsync(user, ct);
         }
 
-        return await IssueSessionAsync(user, ct);
+        return await IssueSessionAsync(user, staySignedIn, ct);
     }
 
     /// <summary>Returns the profile for a given user ID, or null if not found.</summary>
@@ -113,7 +114,9 @@ public class IdentityService : IIdentityService
         stored.Consume(now);
         await _refreshTokens.UpdateAsync(stored, ct);
 
-        return await IssueSessionAsync(user, ct, stored.FamilyId);
+        // The successor inherits the session's chosen length, and its window is measured
+        // from now — so a session in continued use is never ended by elapsed time alone.
+        return await IssueSessionAsync(user, stored.Persistent, ct, stored.FamilyId);
     }
 
     /// <summary>
@@ -134,21 +137,29 @@ public class IdentityService : IIdentityService
 
     /// <summary>
     /// Issues an access token plus a refresh token. A successor inherits its predecessor's
-    /// family; a fresh authentication starts a new one.
+    /// family and its session length; a fresh authentication starts a new one and takes the
+    /// length the user asked for.
     /// </summary>
-    private async Task<TokenDto> IssueSessionAsync(AppUser user, CancellationToken ct,
-        Guid? familyId = null)
+    private async Task<TokenDto> IssueSessionAsync(AppUser user, bool persistent,
+        CancellationToken ct, Guid? familyId = null)
     {
         var access = _tokenGenerator.Generate(user);
         var pair = _tokenGenerator.GenerateRefreshToken();
+        var expiresAt = DateTime.UtcNow.Add(_refreshSettings.LifetimeFor(persistent));
 
         await _refreshTokens.AddAsync(new RefreshToken(
             pair.TokenHash,
             user.Id,
             familyId ?? Guid.NewGuid(),
-            DateTime.UtcNow.Add(_refreshSettings.Lifetime)), ct);
+            expiresAt,
+            persistent), ct);
 
-        return access with { RefreshToken = pair.RawToken };
+        return access with
+        {
+            RefreshToken = pair.RawToken,
+            RefreshTokenExpiresAt = expiresAt,
+            RefreshTokenPersistent = persistent
+        };
     }
 
     /// <summary>

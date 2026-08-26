@@ -15,6 +15,13 @@ public class RefreshTokenDocument
     public DateTime? ConsumedAt { get; set; }
     public DateTime? RevokedAt { get; set; }
 
+    /// <summary>
+    /// Whether the user asked to stay signed in. Defaults to false, which is also what a
+    /// document written before this field existed deserialises to — credentials issued
+    /// under the ordinary lifetime keep it, and no backfill is needed.
+    /// </summary>
+    public bool Persistent { get; set; }
+
     public static RefreshTokenDocument FromDomain(RefreshToken token) => new()
     {
         Id = token.Id,
@@ -23,9 +30,10 @@ public class RefreshTokenDocument
         FamilyId = token.FamilyId,
         ExpiresAt = token.ExpiresAt,
         ConsumedAt = token.ConsumedAt,
-        RevokedAt = token.RevokedAt
+        RevokedAt = token.RevokedAt,
+        Persistent = token.Persistent
     };
 
     public RefreshToken ToDomain() => new(
-        Id, TokenHash, UserId, FamilyId, ExpiresAt, ConsumedAt, RevokedAt);
+        Id, TokenHash, UserId, FamilyId, ExpiresAt, ConsumedAt, RevokedAt, Persistent);
 }

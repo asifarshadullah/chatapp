@@ -9,8 +9,14 @@ public interface IIdentityService
 {
     Task<TokenDto> RegisterAsync(RegisterDto dto, CancellationToken ct = default);
     Task<TokenDto> LoginAsync(LoginDto dto, CancellationToken ct = default);
+    /// <summary>
+    /// Completes an external-provider sign-in. <paramref name="staySignedIn"/> is the choice
+    /// the user made before being redirected to the provider, carried back through the
+    /// provider round trip.
+    /// </summary>
     Task<TokenDto> HandleExternalCallbackAsync(string provider, string providerKey,
-        string email, string displayName, CancellationToken ct = default);
+        string email, string displayName, bool staySignedIn = false,
+        CancellationToken ct = default);
     Task<UserProfileDto?> GetUserAsync(Guid userId, CancellationToken ct = default);
 
     /// <summary>

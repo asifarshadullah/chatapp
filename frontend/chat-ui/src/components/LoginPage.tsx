@@ -2,6 +2,8 @@ import { useState } from 'react'
 import {
   Box,
   Button,
+  Checkbox,
+  FormControlLabel,
   TextField,
   Typography,
   Alert,
@@ -19,6 +21,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
+  // Off unless the user says otherwise: a longer session is their call to make, and the
+  // safe answer on a machine that might be shared is the short one.
+  const [staySignedIn, setStaySignedIn] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
@@ -28,9 +33,9 @@ export function LoginPage({ onLogin }: LoginPageProps) {
     setIsLoading(true)
     try {
       if (mode === 'login') {
-        await authService.login(email, password)
+        await authService.login(email, password, staySignedIn)
       } else {
-        await authService.register(email, password, displayName)
+        await authService.register(email, password, displayName, staySignedIn)
       }
       onLogin()
     } catch (err) {
@@ -91,6 +96,16 @@ export function LoginPage({ onLogin }: LoginPageProps) {
                 inputProps={{ 'aria-label': 'Display Name' }}
               />
             )}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={staySignedIn}
+                  onChange={(e) => setStaySignedIn(e.target.checked)}
+                  inputProps={{ 'aria-label': 'Keep me signed in' }}
+                />
+              }
+              label="Keep me signed in"
+            />
             <Button
               type="submit"
               variant="contained"

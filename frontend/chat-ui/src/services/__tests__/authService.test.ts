@@ -39,7 +39,11 @@ describe('login', () => {
       headers: { 'Content-Type': 'application/json' },
       // Required for the browser to store the http-only refresh cookie.
       credentials: 'include',
-      body: JSON.stringify({ email: 'user@test.com', password: 'Password123' }),
+      body: JSON.stringify({
+        email: 'user@test.com',
+        password: 'Password123',
+        staySignedIn: false,
+      }),
     })
   })
 
@@ -77,7 +81,12 @@ describe('register', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ email: 'new@test.com', password: 'Password123', displayName: 'Alice' }),
+      body: JSON.stringify({
+        email: 'new@test.com',
+        password: 'Password123',
+        displayName: 'Alice',
+        staySignedIn: false,
+      }),
     })
   })
 })
@@ -114,6 +123,7 @@ describe('logout', () => {
 
 describe('isAuthenticated', () => {
   it('returns true when token exists', () => {
+    localStorage.setItem('auth_session', 'remembered')
     localStorage.setItem('auth_token', 'some-token')
     expect(authService.isAuthenticated()).toBe(true)
   })
@@ -127,6 +137,7 @@ describe('isAuthenticated', () => {
 
 describe('token expiry', () => {
   it('getToken returns null and clears storage when token is expired', () => {
+    localStorage.setItem('auth_session', 'remembered')
     localStorage.setItem('auth_token', 'expired-token')
     localStorage.setItem('auth_token_expiry', new Date(Date.now() - 1000).toISOString())
 
@@ -135,6 +146,7 @@ describe('token expiry', () => {
   })
 
   it('getToken returns token when not yet expired', () => {
+    localStorage.setItem('auth_session', 'remembered')
     localStorage.setItem('auth_token', 'valid-token')
     localStorage.setItem('auth_token_expiry', new Date(Date.now() + 60_000).toISOString())
 
