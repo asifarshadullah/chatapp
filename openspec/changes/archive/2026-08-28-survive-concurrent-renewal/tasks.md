@@ -106,8 +106,8 @@ corrected mid-implementation to inherit the ceiling through every successor; see
 - [x] 7.1 Run the suites CI runs — `npm run typecheck`, `npm run lint`, `npm run test:run` in
       `frontend/chat-ui`, and `dotnet test backend/ChatApp.sln` — plus `npx playwright test`
       locally, since this touches the session path and e2e is not in CI. Verify: all green.
-- [ ] 7.2 Confirm the shipped behaviour matches the delta spec, correcting the spec if the
+- [x] 7.2 Confirm the shipped behaviour matches the delta spec, correcting the spec if the
       implementation taught otherwise, then archive. Verify: `openspec validate` passes and
       `openspec/specs/identity/token-refresh/spec.md` describes what the code does.
-- [ ] 7.3 Close issue #1 referencing the commit; note on issue #3 that a family may now hold
+- [x] 7.3 Close issue #1 referencing the commit; note on issue #3 that a family may now hold
       more than one active chain. Verify: both read correctly on GitHub.
