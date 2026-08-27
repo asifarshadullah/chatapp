@@ -65,4 +65,27 @@ public class RefreshTokenSettingsTests
         settings.Lifetime.Should().Be(TimeSpan.FromDays(2));
         settings.PersistentLifetime.Should().Be(TimeSpan.FromDays(60));
     }
+
+    // ── Task 6.1 — the grace window ─────────────────────────────────────────
+
+    [Fact]
+    public void GraceWindow_DefaultsToTwoSeconds()
+    {
+        var settings = Bind();
+
+        // Seconds, because the collision it tolerates is two exchanges overlapping in flight
+        // — the gap between a request being sent and another response updating the cookie the
+        // clients share. That is milliseconds; two seconds absorbs queueing and a slow round
+        // trip with room to spare, without widening the period a captured credential is usable.
+        settings.GraceWindow.Should().Be(TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void GraceWindow_BindsAConfiguredValue()
+    {
+        var settings = Bind(("RefreshToken:GraceWindowSeconds", "10"));
+
+        settings.GraceWindowSeconds.Should().Be(10);
+        settings.GraceWindow.Should().Be(TimeSpan.FromSeconds(10));
+    }
 }

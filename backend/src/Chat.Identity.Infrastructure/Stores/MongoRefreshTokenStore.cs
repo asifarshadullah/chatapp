@@ -38,6 +38,29 @@ public class MongoRefreshTokenStore : IRefreshTokenStore
             RefreshTokenDocument.FromDomain(token), cancellationToken: ct);
 
     /// <summary>
+    /// Consumes a token in a single conditional update: the filter requires it to be
+    /// unconsumed, so of two overlapping callers exactly one modifies a document. Mirrors what
+    /// the entity's Consume does — record the moment, keep the expiry it had, and pull the
+    /// live expiry in so the record is reaped promptly — because the write has to be one
+    /// operation to be atomic and so cannot go through the entity.
+    /// </summary>
+    public async Task<bool> TryConsumeAsync(RefreshToken token, DateTime now,
+        CancellationToken ct = default)
+    {
+        var result = await _collection.UpdateOneAsync(
+            Builders<RefreshTokenDocument>.Filter.And(
+                Builders<RefreshTokenDocument>.Filter.Eq(t => t.Id, token.Id),
+                Builders<RefreshTokenDocument>.Filter.Eq(t => t.ConsumedAt, null)),
+            Builders<RefreshTokenDocument>.Update
+                .Set(t => t.ConsumedAt, now)
+                .Set(t => t.PreConsumptionExpiresAt, token.ExpiresAt)
+                .Set(t => t.ExpiresAt, now < token.ExpiresAt ? now : token.ExpiresAt),
+            cancellationToken: ct);
+
+        return result.ModifiedCount == 1;
+    }
+
+    /// <summary>
     /// Withdraws every member of a family in one update. Already-revoked members keep their
     /// original timestamp, matching the entity's idempotent Revoke.
     /// </summary>

@@ -181,4 +181,42 @@ public class RefreshTokenTests
 
         token.IsUsable(Now).Should().BeTrue();
     }
+
+    // ── Task 1.1 — the expiry a credential had before it was consumed ────────
+
+    [Fact]
+    public void Consume_PreservesTheExpiryItHadBeforehand()
+    {
+        var token = Issue(expiresAt: Now.AddDays(30));
+
+        token.Consume(Now);
+
+        // Consuming pulls ExpiresAt in to now so the record can be reaped promptly, which
+        // destroys the only record of when the session itself would have ended. A credential
+        // issued on the grace path is bounded by that moment, so it has to survive.
+        token.ExpiresAt.Should().Be(Now);
+        token.PreConsumptionExpiresAt.Should().Be(Now.AddDays(30));
+    }
+
+    [Fact]
+    public void NewToken_HasNoPreConsumptionExpiry()
+    {
+        var token = Issue();
+
+        token.PreConsumptionExpiresAt.Should().BeNull();
+    }
+
+    [Fact]
+    public void Consume_OnALapsedToken_PreservesTheEarlierExpiry()
+    {
+        var token = Issue(expiresAt: Now.AddDays(-1));
+
+        token.Consume(Now);
+
+        // Consuming never pushes expiry outwards, and the preserved value is the real one —
+        // otherwise a credential that had already lapsed could bound a grace-issued
+        // successor at a moment later than its own session ever reached.
+        token.ExpiresAt.Should().Be(Now.AddDays(-1));
+        token.PreConsumptionExpiresAt.Should().Be(Now.AddDays(-1));
+    }
 }

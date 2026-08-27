@@ -24,7 +24,17 @@ public class RefreshTokenSettings : IRefreshTokenSettings
     /// </summary>
     public int PersistentLifetimeDays { get; set; } = 30;
 
+    /// <summary>
+    /// How long a consumed credential may still be presented before that counts as a replay.
+    /// Two seconds because the collision being tolerated is two exchanges overlapping in
+    /// flight, which is a matter of milliseconds — the clients share one credential store, so
+    /// none of them can hold a stale credential for longer than a response takes to arrive.
+    /// </summary>
+    public int GraceWindowSeconds { get; set; } = 2;
+
     public TimeSpan Lifetime => TimeSpan.FromDays(LifetimeDays);
+
+    public TimeSpan GraceWindow => TimeSpan.FromSeconds(GraceWindowSeconds);
 
     public TimeSpan PersistentLifetime => TimeSpan.FromDays(PersistentLifetimeDays);
 }

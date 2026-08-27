@@ -23,6 +23,32 @@ public class RefreshToken
     public Guid FamilyId { get; }
     public DateTime ExpiresAt { get; private set; }
     public DateTime? ConsumedAt { get; private set; }
+
+    /// <summary>
+    /// The expiry this credential held before it was consumed, or null while it is unconsumed.
+    ///
+    /// <see cref="Consume"/> pulls <see cref="ExpiresAt"/> in to the moment of consumption so
+    /// the store can reap the record promptly, which erases the only record of when the
+    /// session itself would have run out. A credential issued because an exchange arrived
+    /// within the grace window is bounded by that moment — otherwise a replayed credential
+    /// would buy a full-length session, unbounded by the one it came from.
+    /// </summary>
+    public DateTime? PreConsumptionExpiresAt { get; private set; }
+
+    /// <summary>
+    /// A ceiling this credential may not be exchangeable beyond, or null when the session has
+    /// never been renewed under the grace window.
+    ///
+    /// Set when a credential is issued because an exchange arrived within the grace window,
+    /// and inherited by every successor thereafter — ordinary rotations included. Inheritance
+    /// is the whole point: a grace-issued credential is otherwise unremarkable, so without it
+    /// one ordinary rotation would slide the session back out to a full lifetime and a
+    /// replayed credential would escape the bound for the price of one more request.
+    ///
+    /// A session that never renews under grace never acquires a ceiling, so ordinary sliding
+    /// renewal is untouched and continued use still keeps a session alive indefinitely.
+    /// </summary>
+    public DateTime? SessionExpiresAt { get; }
     public DateTime? RevokedAt { get; private set; }
 
     /// <summary>
@@ -33,7 +59,7 @@ public class RefreshToken
 
     /// <summary>Issue a brand-new token.</summary>
     public RefreshToken(string tokenHash, Guid userId, Guid familyId, DateTime expiresAt,
-        bool persistent = false)
+        bool persistent = false, DateTime? sessionExpiresAt = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(tokenHash);
         Id = Guid.NewGuid();
@@ -42,6 +68,7 @@ public class RefreshToken
         FamilyId = familyId;
         ExpiresAt = expiresAt;
         Persistent = persistent;
+        SessionExpiresAt = sessionExpiresAt;
     }
 
     /// <summary>
@@ -50,7 +77,8 @@ public class RefreshToken
     /// stored as already consumed must load without tripping them.
     /// </summary>
     public RefreshToken(Guid id, string tokenHash, Guid userId, Guid familyId,
-        DateTime expiresAt, DateTime? consumedAt, DateTime? revokedAt, bool persistent = false)
+        DateTime expiresAt, DateTime? consumedAt, DateTime? revokedAt, bool persistent = false,
+        DateTime? preConsumptionExpiresAt = null, DateTime? sessionExpiresAt = null)
     {
         Id = id;
         TokenHash = tokenHash;
@@ -60,11 +88,36 @@ public class RefreshToken
         ConsumedAt = consumedAt;
         RevokedAt = revokedAt;
         Persistent = persistent;
+        PreConsumptionExpiresAt = preConsumptionExpiresAt;
+        SessionExpiresAt = sessionExpiresAt;
     }
 
     /// <summary>True while the token can still be exchanged.</summary>
     public bool IsUsable(DateTime now)
         => ConsumedAt is null && RevokedAt is null && now < ExpiresAt;
+
+    /// <summary>
+    /// Whether this credential was consumed recently enough that the caller presenting it now
+    /// is more likely the legitimate holder renewing concurrently than an attacker replaying
+    /// a capture.
+    ///
+    /// Every client of one session draws its credential from the same store, so two exchanges
+    /// overlapping in flight present the same credential twice through nobody's fault. The
+    /// window is anchored to <see cref="ConsumedAt"/> and never moves, so re-presenting cannot
+    /// extend it. A revoked credential is excluded: a family ended by a real replay or by
+    /// signing out must not be revived by a renewal that happens to arrive in time.
+    ///
+    /// Deliberately silent about <see cref="ExpiresAt"/>, which <see cref="Consume"/> has
+    /// already pulled in to the moment of consumption — testing it here would reject every
+    /// caller. The session's own lifetime is enforced by the credential having been usable
+    /// when it was consumed, and by the bound on what is issued in response.
+    ///
+    /// The duration is policy and is passed in rather than known here.
+    /// </summary>
+    public bool IsWithinGrace(DateTime now, TimeSpan grace)
+        => ConsumedAt is { } consumedAt
+           && RevokedAt is null
+           && now - consumedAt <= grace;
 
     /// <summary>
     /// Mark the token as spent. Throws if it was already consumed: that is a replay, and the
@@ -83,6 +136,7 @@ public class RefreshToken
             throw new InvalidOperationException("Refresh token has already been consumed.");
 
         ConsumedAt = now;
+        PreConsumptionExpiresAt = ExpiresAt;
         if (now < ExpiresAt) ExpiresAt = now;
     }
 

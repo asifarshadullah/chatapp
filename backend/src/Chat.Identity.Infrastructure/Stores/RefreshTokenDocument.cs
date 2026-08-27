@@ -22,6 +22,19 @@ public class RefreshTokenDocument
     /// </summary>
     public bool Persistent { get; set; }
 
+    /// <summary>
+    /// The expiry the credential held before it was consumed. Absent on documents written
+    /// before this field existed, which deserialise to null — read as "no bound known", so
+    /// no backfill is needed.
+    /// </summary>
+    public DateTime? PreConsumptionExpiresAt { get; set; }
+
+    /// <summary>
+    /// The ceiling inherited down a family that has renewed under the grace window. Null on
+    /// documents written before this field existed, and on sessions that never hit that path.
+    /// </summary>
+    public DateTime? SessionExpiresAt { get; set; }
+
     public static RefreshTokenDocument FromDomain(RefreshToken token) => new()
     {
         Id = token.Id,
@@ -31,9 +44,12 @@ public class RefreshTokenDocument
         ExpiresAt = token.ExpiresAt,
         ConsumedAt = token.ConsumedAt,
         RevokedAt = token.RevokedAt,
-        Persistent = token.Persistent
+        Persistent = token.Persistent,
+        PreConsumptionExpiresAt = token.PreConsumptionExpiresAt,
+        SessionExpiresAt = token.SessionExpiresAt
     };
 
     public RefreshToken ToDomain() => new(
-        Id, TokenHash, UserId, FamilyId, ExpiresAt, ConsumedAt, RevokedAt, Persistent);
+        Id, TokenHash, UserId, FamilyId, ExpiresAt, ConsumedAt, RevokedAt, Persistent,
+        PreConsumptionExpiresAt, SessionExpiresAt);
 }

@@ -3,6 +3,7 @@ using Chat.Identity.Application.Interfaces;
 using Chat.Identity.Domain.Entities;
 using Chat.Identity.Infrastructure.Services;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 
 namespace Chat.Identity.Tests.Services;
 
@@ -16,7 +17,7 @@ public class IdentityServiceRefreshTests
         users = new FakeUserStore();
         tokens = new FakeRefreshTokenStore();
         return new IdentityService(users, new FakeTokenGenerator(), tokens,
-            new FakeRefreshTokenSettings());
+            new FakeRefreshTokenSettings(), new CapturingLogger());
     }
 
     private static async Task<(IdentityService Svc, FakeRefreshTokenStore Tokens, TokenDto Session)>
@@ -167,8 +168,13 @@ public class IdentityServiceRefreshTests
     [Fact]
     public async Task RefreshAsync_ReplayingAConsumedToken_IsRefused()
     {
-        var (svc, _, session) = await SignedIn();
+        var (svc, tokens, session) = await SignedIn();
         await svc.RefreshAsync(session.RefreshToken);
+
+        // Beyond the grace window, where no legitimate client would still be holding it.
+        // Inside the window this is concurrent renewal and succeeds — see
+        // IdentityServiceConcurrentRenewalTests.
+        tokens.BackdateConsumption(TimeSpan.FromMinutes(1));
 
         var act = () => svc.RefreshAsync(session.RefreshToken);
 
@@ -180,6 +186,7 @@ public class IdentityServiceRefreshTests
     {
         var (svc, tokens, session) = await SignedIn();
         var successor = await svc.RefreshAsync(session.RefreshToken);
+        tokens.BackdateConsumption(TimeSpan.FromMinutes(1));
 
         await Capture(() => svc.RefreshAsync(session.RefreshToken));
 
@@ -269,6 +276,21 @@ public class FakeRefreshTokenStore : IRefreshTokenStore
     public Task UpdateAsync(RefreshToken token, CancellationToken ct = default)
         => Task.CompletedTask; // entities are held by reference here
 
+    /// <summary>
+    /// Task 3.4 — mirrors the store's conditional consume, so the service tests exercise the
+    /// real semantics rather than a fake that always wins. Consuming an already-consumed
+    /// credential loses and changes nothing, exactly as the guarded Mongo update does.
+    /// </summary>
+    public Task<bool> TryConsumeAsync(RefreshToken token, DateTime now,
+        CancellationToken ct = default)
+    {
+        var stored = Tokens.FirstOrDefault(t => t.Id == token.Id);
+        if (stored is null || stored.ConsumedAt is not null) return Task.FromResult(false);
+
+        stored.Consume(now);
+        return Task.FromResult(true);
+    }
+
     public Task RevokeFamilyAsync(Guid familyId, DateTime revokedAt, CancellationToken ct = default)
     {
         foreach (var token in Tokens.Where(t => t.FamilyId == familyId))
@@ -276,12 +298,43 @@ public class FakeRefreshTokenStore : IRefreshTokenStore
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Rewrites every stored token to expire at a given moment, standing in for a session that
+    /// has been running a while — which is the only situation where a bound on a grace-issued
+    /// credential is distinguishable from a fresh lifetime.
+    /// </summary>
+    public void ExpireAllAt(DateTime expiresAt)
+    {
+        var moved = Tokens
+            .Select(t => new RefreshToken(t.Id, t.TokenHash, t.UserId, t.FamilyId, expiresAt,
+                t.ConsumedAt, t.RevokedAt, t.Persistent, t.PreConsumptionExpiresAt,
+                t.SessionExpiresAt))
+            .ToList();
+        Tokens.Clear();
+        Tokens.AddRange(moved);
+    }
+
+    /// <summary>Rewrites consumed tokens as consumed longer ago, without waiting real time.</summary>
+    public void BackdateConsumption(TimeSpan by)
+    {
+        var moved = Tokens
+            .Select(t => t.ConsumedAt is null
+                ? t
+                : new RefreshToken(t.Id, t.TokenHash, t.UserId, t.FamilyId, t.ExpiresAt,
+                    t.ConsumedAt - by, t.RevokedAt, t.Persistent, t.PreConsumptionExpiresAt,
+                t.SessionExpiresAt))
+            .ToList();
+        Tokens.Clear();
+        Tokens.AddRange(moved);
+    }
+
     /// <summary>Rewrites every stored token as expired, without waiting for real time.</summary>
     public void ExpireAll()
     {
         var expired = Tokens
             .Select(t => new RefreshToken(t.Id, t.TokenHash, t.UserId, t.FamilyId,
-                DateTime.UtcNow.AddSeconds(-1), t.ConsumedAt, t.RevokedAt))
+                DateTime.UtcNow.AddSeconds(-1), t.ConsumedAt, t.RevokedAt, t.Persistent,
+                t.PreConsumptionExpiresAt, t.SessionExpiresAt))
             .ToList();
         Tokens.Clear();
         Tokens.AddRange(expired);
@@ -294,4 +347,7 @@ public class FakeRefreshTokenSettings : IRefreshTokenSettings
 
     /// <summary>Deliberately far from Lifetime, so a test can tell which one was used.</summary>
     public TimeSpan PersistentLifetime => TimeSpan.FromDays(60);
+
+    /// <summary>Also deliberately unlike the real default, for the same reason.</summary>
+    public TimeSpan GraceWindow => TimeSpan.FromSeconds(5);
 }

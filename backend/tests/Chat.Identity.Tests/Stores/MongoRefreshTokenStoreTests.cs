@@ -1,6 +1,7 @@
 using Chat.Identity.Domain.Entities;
 using Chat.Identity.Infrastructure.Stores;
 using FluentAssertions;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace Chat.Identity.Tests.Stores;
@@ -179,6 +180,123 @@ public class MongoRefreshTokenStoreTests : IClassFixture<RefreshTokenDbFixture>
         var found = await _sut.FindByHashAsync(token.TokenHash);
         found!.ConsumedAt.Should().NotBeNull();
         found.IsUsable(DateTime.UtcNow).Should().BeFalse();
+    }
+
+    // ── Task 3.1/3.3 — consumption is conditional ───────────────────────────
+
+    [Fact]
+    public async Task TryConsumeAsync_ConsumesAnUnconsumedCredential()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}");
+        await _sut.AddAsync(token);
+        var now = DateTime.UtcNow;
+
+        var consumed = await _sut.TryConsumeAsync(token, now);
+
+        consumed.Should().BeTrue();
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+        found!.ConsumedAt.Should().BeCloseTo(now, TimeSpan.FromSeconds(1));
+        found.IsUsable(now).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task TryConsumeAsync_PullsInTheExpiryAndPreservesTheOriginal()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}");
+        var originalExpiry = token.ExpiresAt;
+        await _sut.AddAsync(token);
+        var now = DateTime.UtcNow;
+
+        await _sut.TryConsumeAsync(token, now);
+
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+        found!.ExpiresAt.Should().BeCloseTo(now, TimeSpan.FromSeconds(1));
+        found.PreConsumptionExpiresAt.Should().BeCloseTo(originalExpiry, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task TryConsumeAsync_ASecondTime_LosesAndChangesNothing()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}");
+        await _sut.AddAsync(token);
+        var first = DateTime.UtcNow;
+        await _sut.TryConsumeAsync(token, first);
+
+        var second = await _sut.TryConsumeAsync(token, first.AddSeconds(5));
+
+        // The heart of the fix. An unguarded replace would return true here and overwrite the
+        // first consumption, so two overlapping exchanges would both believe they consumed the
+        // credential and the grace window would never be consulted.
+        second.Should().BeFalse();
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+        found!.ConsumedAt.Should().BeCloseTo(first, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task TryConsumeAsync_OnAnUnknownCredential_Loses()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}");
+
+        var consumed = await _sut.TryConsumeAsync(token, DateTime.UtcNow);
+
+        consumed.Should().BeFalse();
+    }
+
+    // ── Task 1.4 — the pre-consumption expiry survives storage ──────────────
+
+    [Fact]
+    public async Task UpdateAsync_PersistsThePreConsumptionExpiry()
+    {
+        var token = NewToken($"hash-{Guid.NewGuid():N}");
+        var originalExpiry = token.ExpiresAt;
+        await _sut.AddAsync(token);
+
+        token.Consume(DateTime.UtcNow);
+        await _sut.UpdateAsync(token);
+
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+        found!.PreConsumptionExpiresAt.Should().BeCloseTo(originalExpiry, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task AddAsync_ThenFindByHash_KeepsTheSessionCeiling()
+    {
+        var ceiling = DateTime.UtcNow.AddHours(1);
+        var token = new RefreshToken($"hash-{Guid.NewGuid():N}", Guid.NewGuid(), Guid.NewGuid(),
+            DateTime.UtcNow.AddDays(14), persistent: false, sessionExpiresAt: ceiling);
+
+        await _sut.AddAsync(token);
+
+        var found = await _sut.FindByHashAsync(token.TokenHash);
+        found!.SessionExpiresAt.Should().BeCloseTo(ceiling, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task ADocumentWrittenWithoutTheField_LoadsWithoutOne()
+    {
+        // What a credential issued before this change looks like on disk. It must load rather
+        // than throw, and it must not claim a bound it never had — the service treats a
+        // missing value as "no bound known", which is what makes the deploy migration-free.
+        var hash = $"hash-{Guid.NewGuid():N}";
+        var legacy = new BsonDocument
+        {
+            { "_id", Guid.NewGuid().ToString() },
+            { "TokenHash", hash },
+            { "UserId", Guid.NewGuid().ToString() },
+            { "FamilyId", Guid.NewGuid().ToString() },
+            { "ExpiresAt", DateTime.UtcNow.AddDays(1) },
+            { "ConsumedAt", BsonNull.Value },
+            { "RevokedAt", BsonNull.Value },
+            { "Persistent", false }
+        };
+        await _fixture.Database.GetCollection<BsonDocument>("refreshTokens")
+            .InsertOneAsync(legacy);
+
+        var found = await _sut.FindByHashAsync(hash);
+
+        found.Should().NotBeNull();
+        found!.PreConsumptionExpiresAt.Should().BeNull();
+        found.SessionExpiresAt.Should().BeNull();
     }
 
     [Fact]

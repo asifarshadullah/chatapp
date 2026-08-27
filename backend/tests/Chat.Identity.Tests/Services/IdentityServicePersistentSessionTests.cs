@@ -3,6 +3,7 @@ using Chat.Identity.Application.Interfaces;
 using Chat.Identity.Domain.Entities;
 using Chat.Identity.Infrastructure.Services;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 
 namespace Chat.Identity.Tests.Services;
 
@@ -23,7 +24,7 @@ public class IdentityServicePersistentSessionTests
         users = new FakeUserStore();
         tokens = new FakeRefreshTokenStore();
         return new IdentityService(users, new FakeTokenGenerator(), tokens,
-            new FakeRefreshTokenSettings());
+            new FakeRefreshTokenSettings(), new CapturingLogger());
     }
 
     private static AppUser SeedUser(FakeUserStore users, string email = "user@example.com")

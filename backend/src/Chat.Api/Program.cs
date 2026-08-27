@@ -81,6 +81,10 @@ builder.Services.AddOptions<RefreshTokenSettings>()
     .Validate(s => s.LifetimeDays > 0, "RefreshToken:LifetimeDays must be greater than zero.")
     .Validate(s => s.PersistentLifetimeDays > s.LifetimeDays,
         "RefreshToken:PersistentLifetimeDays must be greater than RefreshToken:LifetimeDays.")
+    .Validate(s => s.GraceWindowSeconds > 0,
+        "RefreshToken:GraceWindowSeconds must be greater than zero.")
+    .Validate(s => s.GraceWindow < s.Lifetime,
+        "RefreshToken:GraceWindowSeconds must be shorter than RefreshToken:LifetimeDays.")
     .ValidateOnStart();
 builder.Services.AddSingleton<IRefreshTokenSettings>(sp =>
     sp.GetRequiredService<IOptions<RefreshTokenSettings>>().Value);
