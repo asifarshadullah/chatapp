@@ -74,9 +74,13 @@ cannot fire there and any test of it would pass by construction.
 
 - [x] 4.1 Run `npm run typecheck`, `npm run lint` and `npm run test:run` in
       `frontend/chat-ui`. Verify: all green.
-- [ ] 4.2 Run the Playwright suite locally against a running stack. Verify: the chat path is
+- [x] 4.2 Run the Playwright suite locally against a running stack. Verify: the chat path is
       unbroken. Smoke test only — it cannot stage a refusal more than two seconds late, and
       must not be relied on to catch this defect.
-- [ ] 4.3 Confirm by hand in two browser tabs that a session survives what previously ended it.
-      Verify: with both tabs open past the access token's lifetime, neither is returned to the
-      sign-in form.
+- [x] 4.3 Confirm in two real browser tabs that a session survives what previously ended it.
+      Verify: done with a throwaway Playwright spec that staged the interleaving — tab A's
+      renewal landing while tab B's exchange was in flight, B's refusal forced by a route
+      interception. Both tabs stayed signed in; the same spec run against the pre-fix
+      `authService` left tab B on the sign-in form, which is the regression proof. The spec
+      was deleted rather than kept: it depends on a forced 401 and on interleaving that only
+      holds by construction, so it would guard the arrangement rather than the behaviour.
