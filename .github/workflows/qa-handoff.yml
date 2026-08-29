@@ -1,0 +1,61 @@
+name: QA handoff
+
+# Merging a pull request does not mean its issue is done — it means the fix is
+# on main and waiting to be verified. This moves every issue the pull request
+# referenced into QA instead of leaving it closed, so the board reflects what
+# has actually been checked rather than what has merely shipped. Closing a
+# qa-labelled issue is the one deliberate step left to a human.
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  handoff:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move referenced issues into QA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          # Both spellings are honoured: GitHub's own closing keywords, which
+          # close the issue on merge and are undone below, and a bare "QA: #12"
+          # for a pull request that advances an issue without claiming to end it.
+          issues=$(printf '%s' "$PR_BODY" \
+            | grep -oiE '(clos(e|es|ed)|fix(es|ed)?|resolv(e|es|ed)|QA):?[[:space:]]*#[0-9]+' \
+            | grep -oE '[0-9]+$' \
+            | sort -u || true)
+
+          if [ -z "$issues" ]; then
+            echo "No issue references in the pull request body; nothing to hand off."
+            exit 0
+          fi
+
+          for issue in $issues; do
+            state=$(gh issue view "$issue" --repo "$REPO" --json state --jq .state 2>/dev/null || echo MISSING)
+
+            if [ "$state" = "MISSING" ]; then
+              echo "#$issue does not exist; skipping."
+              continue
+            fi
+
+            # A closing keyword has already closed it. QA is a state the issue
+            # passes through, so reopen it rather than let the merge end it.
+            if [ "$state" = "CLOSED" ]; then
+              gh issue reopen "$issue" --repo "$REPO"
+            fi
+
+            gh issue edit "$issue" --repo "$REPO" --add-label qa
+            gh issue comment "$issue" --repo "$REPO" --body \
+              "Fixed by #${PR_NUMBER}, now merged. Moved to **QA** — close this once the behaviour is verified."
+          done
