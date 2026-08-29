@@ -14,5 +14,22 @@ export class SessionExpiredError extends Error {
   }
 }
 
+/**
+ * Raised when a renewal could not be completed but the session has not been shown to be over
+ * — another client of it renewed successfully moments ago, so the credential is live and this
+ * client simply lost the race.
+ *
+ * Deliberately not a subclass of SessionExpiredError: that error is acted on rather than
+ * merely reported, and the action revokes the refresh credential for every client of the
+ * session. A client that cannot renew right now must be able to say so without ending a
+ * session that other tabs are still using.
+ */
+export class RenewalFailedError extends Error {
+  constructor() {
+    super('Renewal failed')
+    this.name = 'RenewalFailedError'
+  }
+}
+
 export const SESSION_EXPIRED_MESSAGE = 'Your session has expired. Please sign in again.'
 export const CONNECT_FAILED_MESSAGE = 'Failed to connect to chat server.'

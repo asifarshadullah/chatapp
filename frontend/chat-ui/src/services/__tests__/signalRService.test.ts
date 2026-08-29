@@ -264,6 +264,26 @@ describe('session expiry', () => {
     expect(onError).toHaveBeenCalledWith(SESSION_EXPIRED_MESSAGE)
   })
 
+  it('sendMessage reports a failed renewal without ending the session', async () => {
+    // A renewal that lost a race to another tab is not an ended session. Reporting it as one
+    // would sign the user out here and revoke the credential every other tab is using, so it
+    // must fall through to the ordinary transient failure.
+    const { signalRService, CONNECT_FAILED_MESSAGE, SESSION_EXPIRED_MESSAGE } =
+      await loadService()
+    const { RenewalFailedError } = await import('../sessionErrors')
+    const onError = vi.fn()
+
+    const sending = signalRService.sendMessage('hi', undefined, {
+      onConversationId: vi.fn(), onWord: vi.fn(), onComplete: vi.fn(), onError,
+    })
+    await tick()
+    fake.settleFailedWith(new RenewalFailedError())
+    await sending
+
+    expect(onError).toHaveBeenCalledWith(CONNECT_FAILED_MESSAGE)
+    expect(onError).not.toHaveBeenCalledWith(SESSION_EXPIRED_MESSAGE)
+  })
+
   it('sendMessage still reports a genuine connect failure as such', async () => {
     const { signalRService, CONNECT_FAILED_MESSAGE } = await loadService()
     const onError = vi.fn()

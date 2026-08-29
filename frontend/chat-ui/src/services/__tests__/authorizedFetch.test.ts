@@ -136,4 +136,42 @@ describe('authorizedFetch', () => {
     await expect(authorizedFetch('/api/chat')).rejects.toBeInstanceOf(SessionExpiredError)
     expect(fetchMock).not.toHaveBeenCalled()
   })
+
+  it('does not retry with the very token the server just rejected', async () => {
+    // The stored token looks perfectly good — unexpired, not stale — and yet the server
+    // refuses it: a clock skew, a restart, a revoked key. A renewal that merely re-reads
+    // shared storage would find this same token and send it a second time.
+    signedIn(FUTURE(), 'rejected-token')
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce(renewalReturns('renewed-token'))
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await authorizedFetch('/api/chat')
+
+    expect(bearerOf(fetchMock.mock.calls[2])).toBe('Bearer renewed-token')
+  })
+
+  it('retries with a token another tab renewed while the request was refused', async () => {
+    signedIn(FUTURE(), 'rejected-token')
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      if (url === '/api/chat' && localStorage.getItem('auth_token') === 'rejected-token') {
+        // Another tab of this session renews while our request is being refused.
+        localStorage.setItem('auth_token', 'sibling-token')
+        localStorage.setItem('auth_token_expiry', FUTURE())
+        return { ok: false, status: 401 }
+      }
+      return { ok: true, status: 200 }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await authorizedFetch('/api/chat')
+
+    // The sibling's token is the answer; exchanging the credential again would be asking
+    // for something the session already has.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(bearerOf(fetchMock.mock.calls[1])).toBe('Bearer sibling-token')
+  })
 })
