@@ -1,4 +1,4 @@
-import { SessionExpiredError } from './sessionErrors'
+import { RenewalFailedError, SessionExpiredError } from './sessionErrors'
 
 export interface TokenDto {
   accessToken: string
@@ -201,7 +201,10 @@ class AuthService {
     // make a request that is certain to be refused.
     if (!this.hasSession()) throw new SessionExpiredError()
 
-    return this.refresh()
+    // The token just read is the one found wanting, so name it. Nothing observable turns on
+    // this today — the read above is the same read the renewal would make — but it keeps the
+    // call honest if anything is ever awaited between the two.
+    return this.refresh(token)
   }
 
   /**
@@ -209,7 +212,18 @@ class AuthService {
    * one attempt; the shared promise is cleared from inside it, so a caller arriving after a
    * failure starts a fresh attempt rather than inheriting an abandoned rejection.
    */
-  async refresh(): Promise<string> {
+  async refresh(supersededToken?: string | null): Promise<string> {
+    // Defaulting to what is stored at entry keeps callers that pass nothing behaving as they
+    // did: nothing in the store differs from itself, so no reuse is possible and the exchange
+    // proceeds.
+    const superseded =
+      supersededToken !== undefined ? supersededToken : localStorage.getItem(TOKEN_KEY)
+
+    // Another tab of this session may have renewed since the caller last looked. Its token is
+    // in the shared store, so exchanging again would be asking for something already had.
+    const reusable = this._usableTokenOtherThan(superseded)
+    if (reusable) return reusable
+
     if (this._refreshPromise) return this._refreshPromise
 
     const generation = ++this._refreshGeneration
@@ -222,6 +236,19 @@ class AuthService {
         })
 
         if (!response.ok) {
+          // A refusal may mean only that the credential was superseded while this exchange
+          // was in flight. If a sibling stored a token meanwhile, the session is demonstrably
+          // alive and discarding it here would sign out every tab of it.
+          const evidence = this._tokenOtherThan(superseded)
+          if (evidence) {
+            // Usable enough to hand back, or only enough to prove the session lives. In the
+            // second case the caller gets a failure that leaves the session alone, never one
+            // whose handling revokes the credential every other tab depends on.
+            const usable = this._usableTokenOtherThan(superseded)
+            if (usable) return usable
+            throw new RenewalFailedError()
+          }
+
           this.clearLocal()
           throw new SessionExpiredError()
         }
@@ -256,6 +283,31 @@ class AuthService {
     // Refreshed on every store, so a long-lived tab keeps the beacon alive for as long as
     // the browsing session it belongs to.
     markLive()
+  }
+
+  /**
+   * A token another client of this session stored, or null. Identity decides whether it is
+   * another one: a token can be refused while its expiry still looks good, so a client that
+   * compared expiries would present a repudiated token a second time.
+   *
+   * Absence is not another token. A store that has been emptied means a client signed out,
+   * which is the opposite of a sibling having renewed.
+   */
+  private _tokenOtherThan(superseded: string | null): string | null {
+    const stored = localStorage.getItem(TOKEN_KEY)
+    if (!stored || stored === superseded) return null
+    return stored
+  }
+
+  /**
+   * The same, narrowed to one worth using. Evidence that a sibling renewed is weaker than a
+   * token to renew with: a sibling's token that is itself near expiry proves the session is
+   * alive but is not worth adopting, because it would need renewing again immediately.
+   */
+  private _usableTokenOtherThan(superseded: string | null): string | null {
+    const other = this._tokenOtherThan(superseded)
+    if (!other || this._isStale()) return null
+    return other
   }
 
   private _expiry(): string | null {

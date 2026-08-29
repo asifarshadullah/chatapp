@@ -11,6 +11,8 @@ import {
 } from '../../services/signalRService'
 import type { StreamCallbacks } from '../../services/signalRService'
 
+import { RenewalFailedError } from '../../services/sessionErrors'
+
 vi.mock('../../services/signalRService', async (importOriginal) => ({
   // Keep the real error class and message constants: the component compares
   // against them, so stubbing them out would make these tests pass on
@@ -239,6 +241,20 @@ describe('ChatWindow', () => {
 
     expect(await screen.findByText(SESSION_EXPIRED_MESSAGE)).toBeInTheDocument()
     expect(screen.queryByText(CONNECT_FAILED_MESSAGE)).not.toBeInTheDocument()
+  })
+
+  it('does not end the session when a renewal merely failed', async () => {
+    // The parent's handler for an ended session revokes the refresh credential server-side,
+    // which would sign out every other tab of this session. A renewal that lost a race to a
+    // sibling must therefore reach the user as an ordinary transient failure.
+    vi.mocked(signalRService.start).mockRejectedValue(new RenewalFailedError())
+    const onSessionExpired = vi.fn()
+
+    render(<ChatWindow onSessionExpired={onSessionExpired} />)
+
+    expect(await screen.findByText(CONNECT_FAILED_MESSAGE)).toBeInTheDocument()
+    expect(screen.queryByText(SESSION_EXPIRED_MESSAGE)).not.toBeInTheDocument()
+    expect(onSessionExpired).not.toHaveBeenCalled()
   })
 
   it('notifies the parent so an expired session returns to sign in', async () => {
