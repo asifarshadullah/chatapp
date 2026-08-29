@@ -37,6 +37,18 @@ the conversation, not in permanent history.
 No trailers. Do not append `Co-Authored-By:`, `Generated with ...`, or any
 similar attribution footer to commit messages or pull request bodies.
 
+## Issues
+
+An issue is not done when its fix merges — it is done when the behaviour has
+been verified. Merging a pull request that references an issue moves that issue
+into the `qa` label rather than closing it, and the QA handoff workflow does
+this automatically: write `Closes #12` as normal and the merge will reopen and
+label it, or write `QA: #12` for work that advances an issue without claiming
+to finish it.
+
+Closing a `qa` issue is deliberate and manual. It is the moment someone
+confirms the fix actually works, and nothing should do it on your behalf.
+
 ## Specs
 
 Use OpenSpec for any change beyond a trivial fix. Run `/opsx:propose` and get the
