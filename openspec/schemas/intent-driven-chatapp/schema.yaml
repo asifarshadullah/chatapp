@@ -1,6 +1,6 @@
 name: intent-driven-chatapp
 version: 1
-description: Intent-driven workflow - proposal → specs → design → adr → tasks
+description: Intent-driven workflow - proposal → Gherkin-style specs → design → adr → tasks
 artifacts:
   - id: proposal
     generates: proposal.md
@@ -79,7 +79,13 @@ artifacts:
       Format requirements:
       - Each requirement: `### Requirement: <name>` followed by description
       - Use SHALL/MUST for normative requirements (avoid should/may)
-      - Each scenario: `#### Scenario: <name>` with WHEN/THEN format
+      - Each scenario: `#### Scenario: <name>` in Gherkin style. Use
+        **GIVEN** for the starting context, **WHEN** for the action or event,
+        **THEN** for the observable outcome, and **AND** to extend any of the
+        three. Omit GIVEN only when the scenario genuinely has no precondition;
+        do not fold a precondition into WHEN.
+      - A requirement may carry optional `Feature:` and `Rule:` context lines
+        beneath its description when they clarify the business rule under test.
       - **CRITICAL**: Scenarios MUST use exactly 4 hashtags (`####`). Using 3 hashtags or bullets will fail silently.
       - Every requirement MUST have at least one scenario.
 
