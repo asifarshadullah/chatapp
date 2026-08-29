@@ -220,4 +220,37 @@ test.describe('Session', () => {
     expect(renewalAttempted).toBe(false);
     await restarted.close();
   });
+
+  /**
+   * Task 6.4 — a SMOKE TEST, not the regression proof for concurrent renewal.
+   *
+   * The defect needs two exchanges to overlap within milliseconds and land in one particular
+   * order at the server. Playwright cannot arrange that, so this would pass against the
+   * broken build most runs. What it does prove is that two tabs renewing in ordinary use both
+   * stay signed in and nothing about the shared cookie jar or the second tab breaks.
+   *
+   * The real proof lives in the backend suite, where the ordering is deterministic:
+   * IdentityServiceConcurrentRenewalTests and MongoRefreshTokenStoreTests.TryConsumeAsync_*.
+   */
+  test('two tabs renewing both stay signed in', async ({ page, context }) => {
+    await signUp(page);
+
+    const second = await openSecondTab(context);
+    await expect(second.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+
+    await markTokenStale(page);
+    await markTokenStale(second);
+
+    // Both reload at once, so both renew against whatever the shared jar holds.
+    await Promise.all([page.reload(), second.reload()]);
+
+    await expect(page.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+    await expect(second.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+
+    // And the session is still usable afterwards rather than merely appearing signed in.
+    await markTokenStale(page);
+    await page.reload();
+    await expect(page.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
+    await second.close();
+  });
 });

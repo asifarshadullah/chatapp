@@ -2,6 +2,7 @@ using Chat.Identity.Application.DTOs;
 using Chat.Identity.Application.Interfaces;
 using Chat.Identity.Domain.Entities;
 using Chat.Identity.Domain.ValueObjects;
+using Microsoft.Extensions.Logging;
 
 namespace Chat.Identity.Infrastructure.Services;
 
@@ -15,14 +16,17 @@ public class IdentityService : IIdentityService
     private readonly ITokenGenerator _tokenGenerator;
     private readonly IRefreshTokenStore _refreshTokens;
     private readonly IRefreshTokenSettings _refreshSettings;
+    private readonly ILogger<IdentityService> _logger;
 
     public IdentityService(IUserStore store, ITokenGenerator tokenGenerator,
-        IRefreshTokenStore refreshTokens, IRefreshTokenSettings refreshSettings)
+        IRefreshTokenStore refreshTokens, IRefreshTokenSettings refreshSettings,
+        ILogger<IdentityService> logger)
     {
         _store = store;
         _tokenGenerator = tokenGenerator;
         _refreshTokens = refreshTokens;
         _refreshSettings = refreshSettings;
+        _logger = logger;
     }
 
     /// <summary>Register a new user with email/password. Throws if email is already taken.</summary>
@@ -98,25 +102,71 @@ public class IdentityService : IIdentityService
 
         var now = DateTime.UtcNow;
 
-        if (stored.ConsumedAt is not null)
+        if (stored.RevokedAt is not null)
+            throw Refused();
+
+        if (stored.ConsumedAt is null && !stored.IsUsable(now))
+            throw Refused();
+
+        // Looked up before consuming, because the grace path below needs it too.
+        var user = await _store.FindByIdAsync(stored.UserId, ct);
+        if (user is null)
+            throw Refused();
+
+        // Conditional: of two exchanges overlapping in flight, exactly one consumes the
+        // credential. Losing says nothing about who the caller is, only that someone else got
+        // there first — so the loser is judged by the same rule as any other caller presenting
+        // an already-consumed credential.
+        if (await _refreshTokens.TryConsumeAsync(stored, now, ct))
+        {
+            // The successor inherits the session's chosen length, and its window is measured
+            // from now — so a session in continued use is never ended by elapsed time alone.
+            // It also inherits any ceiling this family carries, which is normally none.
+            return await IssueSessionAsync(user, stored.Persistent, ct, stored.FamilyId,
+                noLaterThan: stored.SessionExpiresAt);
+        }
+
+        return await ExchangeAlreadyConsumedAsync(stored.TokenHash, user, now, ct);
+    }
+
+    /// <summary>
+    /// Decides what to do for a caller whose credential was already consumed — whether it was
+    /// consumed before this exchange began or by an exchange that overtook it.
+    ///
+    /// Consumed a moment ago, this is the legitimate holder renewing from a second client, and
+    /// refusing would sign the user out of every one of them. Consumed longer ago, no
+    /// legitimate client would still be holding it, so it was captured and the family goes.
+    /// The only input to that judgement is how long ago it was consumed: which caller this is
+    /// cannot be known, and guessing would let whoever guesses better keep the session.
+    ///
+    /// The record is re-read because a concurrent exchange has just written it, and the
+    /// decision has to be made against what is stored rather than the copy read beforehand.
+    /// </summary>
+    private async Task<TokenDto> ExchangeAlreadyConsumedAsync(string tokenHash, AppUser user,
+        DateTime now, CancellationToken ct)
+    {
+        var stored = await _refreshTokens.FindByHashAsync(tokenHash, ct);
+        if (stored is null)
+            throw Refused();
+
+        if (!stored.IsWithinGrace(now, _refreshSettings.GraceWindow))
         {
             await _refreshTokens.RevokeFamilyAsync(stored.FamilyId, now, ct);
             throw Refused();
         }
 
-        if (!stored.IsUsable(now))
-            throw Refused();
+        // Grace absorbs what would otherwise have been a replay alarm, so the occurrence has
+        // to be recorded: a real attack shows up as repeated grace hits on one family, and
+        // nothing else would reveal it.
+        _logger.LogWarning(
+            "Refresh credential for family {FamilyId} was presented again within the grace " +
+            "window; treating it as concurrent renewal rather than a replay.",
+            stored.FamilyId);
 
-        var user = await _store.FindByIdAsync(stored.UserId, ct);
-        if (user is null)
-            throw Refused();
-
-        stored.Consume(now);
-        await _refreshTokens.UpdateAsync(stored, ct);
-
-        // The successor inherits the session's chosen length, and its window is measured
-        // from now — so a session in continued use is never ended by elapsed time alone.
-        return await IssueSessionAsync(user, stored.Persistent, ct, stored.FamilyId);
+        // The ceiling is whichever is nearer: one already carried by this family, or the
+        // moment the credential being presented would itself have stopped working.
+        return await IssueSessionAsync(user, stored.Persistent, ct, stored.FamilyId,
+            noLaterThan: Earlier(stored.SessionExpiresAt, stored.PreConsumptionExpiresAt));
     }
 
     /// <summary>
@@ -138,21 +188,31 @@ public class IdentityService : IIdentityService
     /// <summary>
     /// Issues an access token plus a refresh token. A successor inherits its predecessor's
     /// family and its session length; a fresh authentication starts a new one and takes the
-    /// length the user asked for.
+    /// length the user asked for. <paramref name="noLaterThan"/> caps the result, and is set
+    /// only on the grace path.
     /// </summary>
     private async Task<TokenDto> IssueSessionAsync(AppUser user, bool persistent,
-        CancellationToken ct, Guid? familyId = null)
+        CancellationToken ct, Guid? familyId = null, DateTime? noLaterThan = null)
     {
         var access = _tokenGenerator.Generate(user);
         var pair = _tokenGenerator.GenerateRefreshToken();
         var expiresAt = DateTime.UtcNow.Add(_refreshSettings.LifetimeFor(persistent));
+
+        // A session that has renewed under the grace window carries a ceiling, and every
+        // credential issued from it stays under that ceiling. Without inheritance the bound
+        // would survive a single exchange: a grace-issued credential is otherwise ordinary, so
+        // one routine rotation would slide the session back out to its full length and a
+        // replayed credential would escape for the price of one more request. Null for a
+        // session that has never renewed under grace, which is the ordinary case.
+        if (noLaterThan is { } bound && bound < expiresAt) expiresAt = bound;
 
         await _refreshTokens.AddAsync(new RefreshToken(
             pair.TokenHash,
             user.Id,
             familyId ?? Guid.NewGuid(),
             expiresAt,
-            persistent), ct);
+            persistent,
+            noLaterThan), ct);
 
         return access with
         {
@@ -161,6 +221,12 @@ public class IdentityService : IIdentityService
             RefreshTokenPersistent = persistent
         };
     }
+
+    /// <summary>The nearer of two moments, ignoring those that are not set.</summary>
+    private static DateTime? Earlier(DateTime? left, DateTime? right)
+        => left is null ? right
+            : right is null ? left
+            : left < right ? left : right;
 
     /// <summary>
     /// One refusal for every reason. Which condition failed is not disclosed, so a caller

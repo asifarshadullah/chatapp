@@ -4,6 +4,7 @@ using Chat.Identity.Domain.Entities;
 using Chat.Identity.Domain.ValueObjects;
 using Chat.Identity.Infrastructure.Services;
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 
 namespace Chat.Identity.Tests.Services;
 
@@ -19,7 +20,7 @@ public class IdentityServiceTests
     {
         store = new FakeUserStore();
         return new IdentityService(store, new FakeTokenGenerator(),
-            new FakeRefreshTokenStore(), new FakeRefreshTokenSettings());
+            new FakeRefreshTokenStore(), new FakeRefreshTokenSettings(), new CapturingLogger());
     }
 
     // ── Phase 1 Cycle 1.1 ────────────────────────────────────────────────────
