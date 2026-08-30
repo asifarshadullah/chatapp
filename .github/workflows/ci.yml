@@ -93,3 +93,17 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  changes:
+    name: Change conventions
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The ADR immutability check compares against origin/main, which a shallow
+          # clone does not have.
+          fetch-depth: 0
+
+      - name: Check OpenSpec change conventions
+        run: python3 scripts/check-change-conventions.py
