@@ -140,7 +140,57 @@ it('returns to the sign in form when the session has expired', async () => {
   // An expired session must land the user on login, not strand them on a chat
   // page showing a connection error they cannot act on.
   expect(await screen.findByLabelText(/password/i)).toBeInTheDocument()
-  expect(authService.logout).toHaveBeenCalled()
+  expect(authService.clearLocal).toHaveBeenCalled()
+  expect(signalRService.stop).toHaveBeenCalled()
+})
+
+it('does not sign out on the server when the session ended by itself', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+
+  render(<App />)
+  await screen.findByLabelText(/password/i)
+
+  // Signing out revokes the credential family, which ends the session for every
+  // client holding it and cannot be undone. The user did not ask for that, and
+  // the credential may still be perfectly exchangeable — the client can reach
+  // this point without having contacted the server at all.
+  expect(authService.logout).not.toHaveBeenCalled()
+  expect(authService.clearLocal).toHaveBeenCalled()
+})
+
+it('still signs out on the server when the user chooses to', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /logout/i }))
+
+  // A deliberate sign-out is the one case where revoking is the point: the
+  // credential may still be good, and leaving it live is the risk.
+  expect(authService.logout).toHaveBeenCalledOnce()
+  expect(await screen.findByLabelText(/password/i)).toBeInTheDocument()
+})
+
+it('leaves no access token behind when a session is abandoned', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+
+  render(<App />)
+  await screen.findByLabelText(/password/i)
+
+  // Not signing out on the server must not mean holding on locally: the
+  // user-visible outcome is unchanged, which is what makes this safe to ship.
+  expect(authService.clearLocal).toHaveBeenCalled()
+})
+
+it('stops the hub when a session is abandoned', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+
+  render(<App />)
+  await screen.findByLabelText(/password/i)
+
+  // A live hub against a dead session reconnects and raises the same error again.
   expect(signalRService.stop).toHaveBeenCalled()
 })
 

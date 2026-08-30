@@ -9,27 +9,27 @@ change needed, because it stages nothing by construction.
 
 ## 1. Abandoning a session without revoking it
 
-- [ ] 1.1 Write a failing test that a session ended by itself makes no request to
+- [x] 1.1 Write a failing test that a session ended by itself makes no request to
       `/auth/logout`, while still clearing `auth_token`, `auth_token_expiry` and `auth_session`.
       Verify: watch it fail — today's `endSession` POSTs on both paths, so the assertion on the
       absent request is what fails, not the clearing.
-- [ ] 1.2 Add `abandonSession` to `App`, stopping the hub and calling `authService.clearLocal`,
+- [x] 1.2 Add `abandonSession` to `App`, stopping the hub and calling `authService.clearLocal`,
       and wire `onSessionExpired` to it. Verify: 1.1 passes.
-- [ ] 1.3 Write a failing test that the Sign out button still POSTs `/auth/logout`. Verify:
+- [x] 1.3 Write a failing test that the Sign out button still POSTs `/auth/logout`. Verify:
       passes — this is the guard that 1.2 narrowed the right path, and it should already pass.
-- [ ] 1.4 Write a failing test that an abandoned session still shows the sign-in form and
+- [x] 1.4 Write a failing test that an abandoned session still shows the sign-in form and
       leaves no access token behind. Verify: passes — the user-visible outcome is unchanged,
       which is what makes this safe to ship.
 
 ## 2. The hub is stopped either way
 
-- [ ] 2.1 Write a failing test that abandoning a session stops the hub connection. Verify:
+- [x] 2.1 Write a failing test that abandoning a session stops the hub connection. Verify:
       watch it fail against an implementation that only clears local state — a live hub against
       a dead session reconnects and re-raises the same error.
 
 ## 3. Proving the credential survives
 
-- [ ] 3.1 Write a Playwright test that signs in, drives the client to abandon its session, and
+- [x] 3.1 Write a Playwright test that signs in, drives the client to abandon its session, and
       then shows the refresh credential still exchanges — a direct `POST /auth/refresh` from
       the page returns a new token. Verify: watch it fail against today's code, where the
       logout POST has already revoked the family. This is the regression proof; the unit tests
@@ -37,9 +37,9 @@ change needed, because it stages nothing by construction.
 
 ## 4. Verification
 
-- [ ] 4.1 Run `npm run typecheck`, `npm run lint` and `npm run test:run` in
+- [x] 4.1 Run `npm run typecheck`, `npm run lint` and `npm run test:run` in
       `frontend/chat-ui`. Verify: all green.
-- [ ] 4.2 Run `dotnet test backend/ChatApp.sln`. Verify: green — the backend is untouched, so
+- [x] 4.2 Run `dotnet test backend/ChatApp.sln`. Verify: green — the backend is untouched, so
       this is a guard against having changed it by accident.
-- [ ] 4.3 Run the full Playwright suite locally against a running stack. Verify: the chat and
+- [x] 4.3 Run the full Playwright suite locally against a running stack. Verify: the chat and
       session paths are unbroken, including the new test from 3.1.

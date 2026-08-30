@@ -37,9 +37,31 @@ function App() {
     return () => { cancelled = true }
   }, [isRestoring])
 
+  /**
+   * The user asked to sign out, so the credential is revoked as well as discarded. Revocation
+   * takes down the whole family, ending the session everywhere it is open — which is exactly
+   * what signing out means.
+   */
   function endSession() {
     signalRService.stop()
     authService.logout()
+    setIsAuthenticated(false)
+  }
+
+  /**
+   * The session ended by itself. Nobody asked for the credential to be revoked, and revoking
+   * it here would be destructive: a client can reach this point without ever contacting the
+   * server — an access token can lapse while the refresh credential is still perfectly
+   * exchangeable — so signing out would throw away a session that could have continued, and
+   * take every other tab of it down too.
+   *
+   * Kept separate from endSession rather than folded into it behind a flag: the two are only
+   * one call apart, and it was a single function serving both intentions that made the
+   * destructive one the default.
+   */
+  function abandonSession() {
+    signalRService.stop()
+    authService.clearLocal()
     setIsAuthenticated(false)
   }
 
@@ -56,7 +78,7 @@ function App() {
         ) : (
           <ChatWindow
             onLogout={endSession}
-            onSessionExpired={endSession}
+            onSessionExpired={abandonSession}
             onManageBilling={() => setView('billing')}
           />
         )

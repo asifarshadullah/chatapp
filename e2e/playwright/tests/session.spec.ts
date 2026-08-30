@@ -253,4 +253,29 @@ test.describe('Session', () => {
     await expect(page.getByPlaceholder('Ask anything')).toBeVisible({ timeout: STREAM_TIMEOUT });
     await second.close();
   });
+
+  test('a session ending by itself leaves the credential exchangeable', async ({ page }) => {
+    await signUp(page);
+
+    // Stale but not yet expired: the client still renders as signed in, so the chat
+    // mounts and renews on connect — which is the only path that reaches the
+    // session-ended handler. An already-expired token would show sign-in instead.
+    await page.evaluate(() => {
+      localStorage.setItem('auth_token_expiry', new Date(Date.now() + 30_000).toISOString());
+    });
+    await page.route('**/auth/refresh', (route) => route.fulfill({ status: 401, body: '' }));
+
+    await page.reload();
+    await expect(page.getByLabel('Password')).toBeVisible({ timeout: STREAM_TIMEOUT });
+
+    // Nobody asked for the credential to be revoked. A renewal that was refused is
+    // not a sign-out, so the credential must still buy a new access token once the
+    // refusal that ended this client's session is out of the way.
+    await page.unroute('**/auth/refresh');
+    const status = await page.evaluate(async () => {
+      const response = await fetch('/auth/refresh', { method: 'POST', credentials: 'include' });
+      return response.status;
+    });
+    expect(status).toBe(200);
+  });
 });
