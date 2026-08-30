@@ -96,6 +96,16 @@ After all tests pass, look for [refactor candidates](refactoring.md):
 
 **Never refactor while RED.** Get to GREEN first.
 
+### 5. Prove the Test Guards Something
+
+Watching a test fail before the implementation exists proves it can fail. It does not
+prove it would catch a *wrong* implementation. Before moving on, mutate the code the test
+claims to guard — invert the condition, restore the old call — and confirm the test fails,
+then revert. A test that survives the mutation is decoration.
+
+See [tests.md](tests.md) for the mutations worth choosing and the two failure modes this
+catches.
+
 ## Checklist Per Cycle
 
 ```
@@ -104,4 +114,5 @@ After all tests pass, look for [refactor candidates](refactoring.md):
 [ ] Test would survive internal refactor
 [ ] Code is minimal for this test
 [ ] No speculative features added
+[ ] Breaking the code on purpose makes this test fail (see tests.md)
 ```
