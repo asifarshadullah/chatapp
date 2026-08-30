@@ -1,4 +1,4 @@
-schema: spec-driven
+schema: intent-driven-chatapp
 
 context: |
   ChatApp — a ChatGPT-style real-time chat application.
@@ -24,14 +24,64 @@ context: |
 
 rules:
   proposal:
+    - Before writing this document, invoke the "grilling" skill and run it to an
+      empty frontier. Do not write proposal.md until the user confirms shared
+      understanding; the answers from the interview are the source material for
+      Why, What Changes and Non-goals.
     - State which bounded context the change belongs to, and justify it if the
       answer is not obvious.
     - Include a "Non-goals" section.
   design:
+    - Before writing this document, invoke the "c4-diagrams" skill and embed the
+      resulting diagrams in design.md. Use Mermaid with plain flowchart or
+      sequenceDiagram syntax and lightweight C4-inspired rigor; do not ask the
+      user to re-confirm format or rigor. Draw only the levels that answer a
+      real question about this change, and state assumptions and open questions
+      alongside them.
+    - Read every ADR in docs/architecture/decisions/ first and build the
+      supersession graph from their Supersedes fields. Only the in-force ADRs
+      (accepted, not superseded) constrain this design; superseded ones are
+      history, not live commitments. If an in-force ADR needs revisiting, do not
+      edit it - raise it under Open Questions for the adr step to supersede.
     - Name the layer each new type belongs to and why, following the inward
       dependency rule.
     - Call out any new interface and say which layer defines it versus
       implements it.
+  adr:
+    - |
+      Do not decide alone which decisions are durable, and do not make the user
+      adjudicate a long flat list. After reading the in-force ADRs and
+      re-reading design.md, account for every entry in that document's
+      Decisions section, split into two groups, and put them to the user in one
+      round before writing anything:
+
+        CANDIDATES - these need your call:
+
+        1. <decision title>
+           <one line on what was chosen>
+           RECOMMEND durable - <what future changes it commits us to>
+
+        ASSESSED TACTICAL - skim and override if I got one wrong:
+
+        2. <title> - <five-word reason it does not qualify>
+        3. <title> - <five-word reason it does not qualify>
+
+      A decision belongs in CANDIDATES only if it commits future changes to
+      something: a boundary, contract, technology, security property, or an
+      accepted trade-off someone might otherwise reverse by accident. Applying
+      a rule the project already has is tactical, not durable. Expect one or
+      two candidates from a typical change, sometimes none. Never pad the
+      candidate list to look thorough, and never drop a decision from the
+      tactical list to keep it short - every numbered entry in the Decisions
+      section must appear in one group or the other.
+
+      Then stop and wait for the user. Write ADR files and the manifest only
+      for what the user promotes, and record in the manifest every decision
+      that was considered and declined, so a later reader can see what was
+      weighed.
+    - |
+      If the user promotes nothing, say so plainly in the manifest rather than
+      inventing an ADR to justify the step.
   tasks:
     - Every task that changes behaviour starts with a failing test, per the
       tdd skill.

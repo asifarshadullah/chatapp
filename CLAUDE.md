@@ -56,6 +56,17 @@ proposal reviewed before writing code; implement with `/opsx:apply`, and
 `/opsx:archive` once the work is merged so `openspec/specs/` keeps describing
 real behaviour.
 
+Before writing any artifact, run `openspec instructions <artifact-id> --change
+<name> --json` and follow what it returns. The schema's own instruction is only
+half of it: the project rules in `openspec/config.yaml` are layered on top by
+that command and are invisible if you work from `schema.yaml` alone. Those rules
+are what require the grilling interview before a proposal, C4 diagrams in a
+design, and an ADR round that the user decides rather than you.
+
+`scripts/check-change-conventions.py` enforces the mechanical half of those
+rules and runs in CI. It is a backstop, not the rule: passing it does not mean
+the interview happened.
+
 Write specs only for what is changing. Do not backfill specs for code you are
 not touching — nothing forces them to stay true, so they go stale and mislead.
 
