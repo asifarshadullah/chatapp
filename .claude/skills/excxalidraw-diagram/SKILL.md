@@ -1,6 +1,7 @@
 ---
 name: excalidraw-diagram
-description: Use when someone asks to draw a diagram, make an Excalidraw diagram, or build an editable diagram. Default for all diagram requests.
+description: Use when someone asks to draw a diagram, make an Excalidraw diagram, or build an editable diagram.
+disable-model-invocation: true
 ---
 
 ## Workflow
