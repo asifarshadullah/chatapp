@@ -20,7 +20,7 @@
 
 - [x] 4.1 Run the CI checks (`npm run typecheck`, `npm run lint`, `npm run test:run` in `frontend/chat-ui`, and `dotnet test backend/ChatApp.sln`) and the Playwright suite in `e2e/playwright` locally, since the chat path changed; all must pass
 - [x] 4.2 For each new test, break the owner check it guards on purpose and confirm the test fails, then restore the check
-- [ ] 4.3 After merge, clear the local development data with `db.conversations.deleteMany({})` in the `chatapp-mongodb` container, and confirm a fresh conversation round-trips in the running app
+- [x] 4.3 After merge, clear the local development data with `db.conversations.deleteMany({})` in the `chatapp-mongodb` container, and confirm a fresh conversation round-trips in the running app
 
 ## 5. Close spec coverage gaps
 
