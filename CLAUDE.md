@@ -32,6 +32,12 @@ Plain prose only: no headings, no markdown, no bullet lists, and no restating
 the diff. Test counts, pass rates and verification notes belong in the pull
 request or the conversation, not in permanent history.
 
+When a commit belongs to an issue, reference it with a `Refs #12` line in the
+body, so every commit says what it was for. Use `Refs`, never `Closes`, in a
+commit message: a commit that lands on `main` saying `Closes #12` closes the
+issue outright and skips the `qa` step below. The pull request names the issue
+too (see Issues).
+
 No trailers. Do not append `Co-Authored-By:`, `Generated with ...`, or any
 similar attribution footer to commit messages or pull request bodies.
 
@@ -50,9 +56,11 @@ confirms the fix actually works, and nothing should do it on your behalf.
 ## Specs
 
 Use OpenSpec for any change beyond a trivial fix. Run `/opsx:propose` and get the
-proposal reviewed before writing code; implement with `/opsx:apply`, and
-`/opsx:archive` once the work is merged so `openspec/specs/` keeps describing
-real behaviour.
+proposal reviewed before writing code, and implement with `/opsx:apply`. Run
+`/opsx:archive` before the pull request merges and commit the archive on the
+same branch, so the code, the archived change and the synced spec reach `main`
+together and `openspec/specs/` describes real behaviour from that merge on. Do
+not open a separate pull request just to archive.
 
 Write specs only for what is changing. Do not backfill specs for code you are
 not touching — nothing forces them to stay true, so they go stale and mislead.
