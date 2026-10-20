@@ -23,16 +23,14 @@ behaviour that changed, not the plan it came from: "Fix: Make role seeding safe
 for concurrent startup" survives, "Implement iteration 10" stops meaning
 anything once the plan file moves on.
 
-Wrap the body at 72 characters. Use it to explain what changed and why, never
-how — the diff already says how. Reach for a body only when the why is not
-recoverable from the code: a non-obvious root cause, an alternative that was
-rejected, a constraint that forced the shape. Routine changes need no body at
-all.
+Make the subject carry the meaning. Most commits need no body at all. When the
+why is not recoverable from the code — a non-obvious root cause, a rejected
+alternative, a forcing constraint — add a body of at most one or two lines,
+wrapped at 72 characters. Say why, never how; the diff already says how.
 
-Keep the body to one or two short paragraphs of plain prose. No headings, no
-markdown, no bullet lists, and no restating the diff as a summary of edits.
-Test counts, pass rates and verification notes belong in the pull request or
-the conversation, not in permanent history.
+Plain prose only: no headings, no markdown, no bullet lists, and no restating
+the diff. Test counts, pass rates and verification notes belong in the pull
+request or the conversation, not in permanent history.
 
 No trailers. Do not append `Co-Authored-By:`, `Generated with ...`, or any
 similar attribution footer to commit messages or pull request bodies.
