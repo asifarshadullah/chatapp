@@ -11,7 +11,7 @@ public interface IChatService
     /// Processes a user message and returns the full AI response as a single DTO.
     /// Used by the REST controller. Creates a new conversation when conversationId is null.
     /// </summary>
-    Task<ChatResponseDto> SendMessageAsync(string content, Guid? conversationId = null, CancellationToken cancellationToken = default);
+    Task<ChatResponseDto> SendMessageAsync(string content, Guid userId, Guid? conversationId = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Saves the user message, streams AI response tokens, then saves the complete assistant message.
@@ -20,11 +20,12 @@ public interface IChatService
     /// </summary>
     IAsyncEnumerable<(Guid ConversationId, string Token)> StreamResponseAsync(
         string content,
+        Guid userId,
         Guid? conversationId = null,
         CancellationToken ct = default);
 
     /// <summary>
     /// Returns the full message history for a conversation, or null if not found.
     /// </summary>
-    Task<ConversationHistoryDto?> GetHistoryAsync(Guid conversationId, CancellationToken cancellationToken = default);
+    Task<ConversationHistoryDto?> GetHistoryAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);
 }

@@ -1,6 +1,8 @@
 using Chat.Application.DTOs;
+using Chat.Application.Exceptions;
 using Chat.Application.Interfaces;
 using Chat.Domain.Entities;
+using Chat.Identity.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,14 +17,17 @@ namespace Chat.Api.Controllers;
 public class ChatController : ControllerBase
 {
     private readonly IChatService _chatService;
+    private readonly ICurrentUser _currentUser;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatController"/> class.
     /// </summary>
     /// <param name="chatService">The chat service for processing messages.</param>
-    public ChatController(IChatService chatService)
+    /// <param name="currentUser">The signed-in caller, whose conversations this controller serves.</param>
+    public ChatController(IChatService chatService, ICurrentUser currentUser)
     {
         _chatService = chatService;
+        _currentUser = currentUser;
     }
 
     /// <summary>
@@ -33,9 +38,11 @@ public class ChatController : ControllerBase
     /// <returns>Echo response with ConversationId.</returns>
     /// <response code="200">Returns the echo response with ConversationId.</response>
     /// <response code="400">If the message is null, empty, or exceeds 5000 characters.</response>
+    /// <response code="404">If ConversationId names a conversation that does not exist or is not the caller's.</response>
     [HttpPost]
     [ProducesResponseType(typeof(ChatResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ChatResponseDto>> SendMessage(
         [FromBody] ChatRequestDto request,
         CancellationToken cancellationToken)
@@ -46,12 +53,21 @@ public class ChatController : ControllerBase
         if (request.Message.Length > ChatMessage.MaxContentLength)
             return BadRequest($"Message cannot exceed {ChatMessage.MaxContentLength} characters.");
 
-        var response = await _chatService.SendMessageAsync(
-            request.Message,
-            request.ConversationId,
-            cancellationToken);
+        try
+        {
+            var response = await _chatService.SendMessageAsync(
+                request.Message,
+                _currentUser.UserId,
+                request.ConversationId,
+                cancellationToken);
 
-        return Ok(response);
+            return Ok(response);
+        }
+        catch (ConversationNotFoundException)
+        {
+            // Same answer whether the conversation is missing or someone else's.
+            return NotFound();
+        }
     }
 
     /// <summary>
@@ -61,7 +77,7 @@ public class ChatController : ControllerBase
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>All messages in chronological order.</returns>
     /// <response code="200">Returns the conversation history.</response>
-    /// <response code="404">If the conversation does not exist.</response>
+    /// <response code="404">If the conversation does not exist or is not the caller's.</response>
     [HttpGet("{conversationId:guid}/history")]
     [ProducesResponseType(typeof(ConversationHistoryDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -69,7 +85,7 @@ public class ChatController : ControllerBase
         Guid conversationId,
         CancellationToken cancellationToken)
     {
-        var history = await _chatService.GetHistoryAsync(conversationId, cancellationToken);
+        var history = await _chatService.GetHistoryAsync(conversationId, _currentUser.UserId, cancellationToken);
 
         if (history is null)
             return NotFound();

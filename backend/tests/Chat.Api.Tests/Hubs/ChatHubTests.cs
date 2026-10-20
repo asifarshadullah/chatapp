@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using Chat.Api.Tests.Infrastructure;
 using Chat.Application.DTOs;
@@ -12,6 +13,9 @@ namespace Chat.Api.Tests.Hubs;
 /// </summary>
 public class ChatHubTests : IClassFixture<ChatApiFactory>
 {
+    private static readonly Guid Alice = Guid.NewGuid();
+    private static readonly Guid Bob = Guid.NewGuid();
+
     private readonly ChatApiFactory _factory;
 
     public ChatHubTests(ChatApiFactory factory)
@@ -19,13 +23,29 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
         _factory = factory;
     }
 
-    private HubConnection CreateHubConnection()
+    private HubConnection CreateHubConnection(
+        Guid? user = null, HttpTransportType transport = HttpTransportType.LongPolling)
     {
         return new HubConnectionBuilder()
             .WithUrl(new Uri(_factory.Server.BaseAddress, "chatHub"), options =>
             {
                 options.HttpMessageHandlerFactory = _ => _factory.Server.CreateHandler();
-                options.Transports = HttpTransportType.LongPolling;
+                options.Transports = transport;
+                if (user is not null)
+                    options.Headers[TestAuthHandler.UserHeader] = user.Value.ToString();
+                if (transport == HttpTransportType.WebSockets)
+                {
+                    // The test server's WebSocket client does not see options.Headers, so the
+                    // user header is set on its upgrade request directly.
+                    options.SkipNegotiation = true;
+                    options.WebSocketFactory = async (context, ct) =>
+                    {
+                        var client = _factory.Server.CreateWebSocketClient();
+                        if (user is not null)
+                            client.ConfigureRequest = r => r.Headers[TestAuthHandler.UserHeader] = user.Value.ToString();
+                        return await client.ConnectAsync(context.Uri, ct);
+                    };
+                }
             })
             .Build();
     }
@@ -141,5 +161,127 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
         {
             await connection.StopAsync();
         }
+    }
+
+    // ── Ownership ───────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(HttpTransportType.LongPolling)]
+    [InlineData(HttpTransportType.WebSockets)]
+    public async Task SendMessage_NewConversation_BelongsToTheCaller(HttpTransportType transport)
+    {
+        var alices = await StartConversationAs(Alice, "Alice's secret", transport);
+
+        var aliceReads = await GetHistoryResponseAs(Alice, alices);
+        var bobReads = await GetHistoryResponseAs(Bob, alices);
+
+        aliceReads.StatusCode.Should().Be(HttpStatusCode.OK);
+        bobReads.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData(HttpTransportType.LongPolling)]
+    [InlineData(HttpTransportType.WebSockets)]
+    public async Task SendMessage_IntoAnotherUsersConversation_FailsAndSendsNothing(HttpTransportType transport)
+    {
+        var alices = await StartConversationAs(Alice, "Alice's secret", transport);
+        var createdBefore = _factory.Repository.ConversationsCreated;
+
+        var (error, ids, tokens) = await SendAs(Bob, "Intruder", alices, transport);
+
+        error.Should().NotBeNull();
+        error!.Message.Should().Contain("Conversation not found.");
+        ids.Should().BeEmpty();
+        tokens.Should().BeEmpty();
+        var history = await GetHistoryAs(Alice, alices);
+        history.Messages.Select(m => m.Content).Should().Equal("Alice's secret", "Fake AI response");
+        _factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+    }
+
+    [Fact]
+    public async Task SendMessage_WithUnknownConversationId_FailsTheSameWay()
+    {
+        var createdBefore = _factory.Repository.ConversationsCreated;
+
+        var (error, ids, tokens) = await SendAs(Bob, "Hello", Guid.NewGuid());
+
+        error.Should().NotBeNull();
+        error!.Message.Should().Contain("Conversation not found.");
+        ids.Should().BeEmpty();
+        tokens.Should().BeEmpty();
+        _factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+    }
+
+    [Fact]
+    public async Task SendMessage_EmptyIntoAnotherUsersConversation_ReportsTheEmptyMessage()
+    {
+        var alices = await StartConversationAs(Alice, "Alice's secret");
+
+        var (error, _, _) = await SendAs(Bob, "", alices);
+
+        error.Should().NotBeNull();
+        error!.Message.Should().Contain("Message cannot be empty.");
+        var history = await GetHistoryAs(Alice, alices);
+        history.Messages.Select(m => m.Content).Should().Equal("Alice's secret", "Fake AI response");
+    }
+
+    private async Task<Guid> StartConversationAs(
+        Guid user, string message, HttpTransportType transport = HttpTransportType.LongPolling)
+    {
+        // Waits for the id itself rather than reading it when the stream ends, so the test
+        // does not depend on the id handler having run by then.
+        var connection = CreateHubConnection(user, transport);
+        var id = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.On<Guid>("ReceiveConversationId", received => id.TrySetResult(received));
+        await connection.StartAsync();
+        try
+        {
+            await foreach (var _ in connection.StreamAsync<string>(
+                "SendMessage", message, (Guid?)null, CancellationToken.None)) { }
+            return await id.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            await connection.StopAsync();
+        }
+    }
+
+    private async Task<(Exception? Error, List<Guid> Ids, List<string> Tokens)> SendAs(
+        Guid user, string message, Guid? conversationId,
+        HttpTransportType transport = HttpTransportType.LongPolling)
+    {
+        var connection = CreateHubConnection(user, transport);
+        var ids = new List<Guid>();
+        var tokens = new List<string>();
+        connection.On<Guid>("ReceiveConversationId", id => ids.Add(id));
+        await connection.StartAsync();
+        try
+        {
+            await foreach (var token in connection.StreamAsync<string>(
+                "SendMessage", message, conversationId, CancellationToken.None))
+                tokens.Add(token);
+            return (null, ids, tokens);
+        }
+        catch (Exception ex)
+        {
+            return (ex, ids, tokens);
+        }
+        finally
+        {
+            await connection.StopAsync();
+        }
+    }
+
+    private async Task<ConversationHistoryDto> GetHistoryAs(Guid user, Guid conversationId)
+    {
+        var response = await GetHistoryResponseAs(user, conversationId);
+        return (await response.Content.ReadFromJsonAsync<ConversationHistoryDto>())!;
+    }
+
+    private Task<HttpResponseMessage> GetHistoryResponseAs(Guid user, Guid conversationId)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/chat/{conversationId}/history");
+        request.Headers.Add(TestAuthHandler.UserHeader, user.ToString());
+        return _factory.CreateClient().SendAsync(request);
     }
 }

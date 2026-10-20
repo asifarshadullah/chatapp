@@ -22,6 +22,12 @@ namespace Chat.Api.Tests.Infrastructure;
 /// </summary>
 public class ChatApiFactory : WebApplicationFactory<Program>
 {
+    /// <summary>The repository every request uses, exposed so tests can count conversations.</summary>
+    public CountingChatRepository Repository => Services.GetRequiredService<CountingChatRepository>();
+
+    /// <summary>The fake AI model every request uses, exposed so tests can count its calls.</summary>
+    public FakeAiProvider Ai => (FakeAiProvider)Services.GetRequiredService<IAiProvider>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureServices(services =>
@@ -30,7 +36,8 @@ public class ChatApiFactory : WebApplicationFactory<Program>
             var repoDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IChatRepository));
             if (repoDescriptor is not null)
                 services.Remove(repoDescriptor);
-            services.AddSingleton<IChatRepository, InMemoryChatRepository>();
+            services.AddSingleton(new CountingChatRepository(new InMemoryChatRepository()));
+            services.AddSingleton<IChatRepository>(sp => sp.GetRequiredService<CountingChatRepository>());
 
             // Replace Ollama AI provider with a deterministic fake
             var aiDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IAiProvider));
@@ -68,14 +75,20 @@ public class AlwaysAllowPermissionService : IPermissionService
 
 /// <summary>
 /// Deterministic AI provider for integration tests.
-/// Returns a fixed response so tests are fast, offline, and predictable.
+/// Returns a fixed response so tests are fast, offline, and predictable, and counts its calls
+/// so a test can show a refused request never reached the model.
 /// </summary>
 public class FakeAiProvider : IAiProvider
 {
+    private int _calls;
+
+    public int Calls => Volatile.Read(ref _calls);
+
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         IReadOnlyList<ChatMessage> history,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        Interlocked.Increment(ref _calls);
         yield return "Fake";
         yield return " AI";
         yield return " response";
@@ -84,13 +97,20 @@ public class FakeAiProvider : IAiProvider
 }
 
 /// <summary>
-/// Test authentication handler that automatically authenticates every request
-/// with a fixed test-user identity. Eliminates the need to issue real JWTs in
-/// ChatApiFactory-backed integration tests.
+/// Test authentication handler that automatically authenticates every request.
+/// The caller is the user named in the X-Test-User header, or a fixed test user when the
+/// header is absent, with the role named in X-Test-Role, or "User". Ownership tests can then
+/// act as different people, administrators included, without issuing real JWTs.
 /// </summary>
 public class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     public static readonly Guid TestUserId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+
+    /// <summary>Request header that selects which user the request is signed in as.</summary>
+    public const string UserHeader = "X-Test-User";
+
+    /// <summary>Request header that selects the caller's role.</summary>
+    public const string RoleHeader = "X-Test-Role";
 
     public TestAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
@@ -100,11 +120,12 @@ public class TestAuthHandler : AuthenticationHandler<AuthenticationSchemeOptions
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        var userId = Guid.TryParse(Request.Headers[UserHeader], out var requested) ? requested : TestUserId;
         var claims = new[]
         {
-            new Claim("sub", TestUserId.ToString()),
+            new Claim("sub", userId.ToString()),
             new Claim("email", "testuser@example.com"),
-            new Claim(ClaimTypes.Role, "User")
+            new Claim(ClaimTypes.Role, Request.Headers.TryGetValue(RoleHeader, out var role) ? role.ToString() : "User")
         };
         var identity = new ClaimsIdentity(claims, "TestScheme");
         var principal = new ClaimsPrincipal(identity);
