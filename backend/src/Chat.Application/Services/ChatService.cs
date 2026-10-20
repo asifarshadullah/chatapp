@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using Chat.Application.DTOs;
+using Chat.Application.Exceptions;
 using Chat.Application.Interfaces;
 using Chat.Domain.Entities;
 using Chat.Domain.Enums;
@@ -27,20 +28,22 @@ public class ChatService : IChatService
     /// <inheritdoc/>
     public async Task<ChatResponseDto> SendMessageAsync(
         string content,
+        Guid userId,
         Guid? conversationId = null,
         CancellationToken cancellationToken = default)
     {
         var userMessage = new ChatMessage(content, MessageRole.User);
+        RequireUser(userId);
 
         var conversation = conversationId.HasValue
-            ? await _repository.GetConversationAsync(conversationId.Value, cancellationToken)
-              ?? throw new KeyNotFoundException($"Conversation '{conversationId}' not found.")
-            : await _repository.CreateConversationAsync(cancellationToken);
+            ? await _repository.GetConversationAsync(conversationId.Value, userId, cancellationToken)
+              ?? throw new ConversationNotFoundException(conversationId.Value)
+            : await _repository.CreateConversationAsync(userId, cancellationToken);
 
-        await _repository.AddMessageAsync(conversation.Id, userMessage, cancellationToken);
+        await _repository.AddMessageAsync(conversation.Id, userId, userMessage, cancellationToken);
 
         // Reload conversation so the AI provider receives the full history including the new user message
-        var updated = await _repository.GetConversationAsync(conversation.Id, cancellationToken)
+        var updated = await _repository.GetConversationAsync(conversation.Id, userId, cancellationToken)
             ?? throw new InvalidOperationException("Conversation disappeared after insert.");
 
         var sb = new StringBuilder();
@@ -48,7 +51,7 @@ public class ChatService : IChatService
             sb.Append(token);
 
         var assistantMessage = new ChatMessage(sb.ToString(), MessageRole.Assistant);
-        await _repository.AddMessageAsync(conversation.Id, assistantMessage, cancellationToken);
+        await _repository.AddMessageAsync(conversation.Id, userId, assistantMessage, cancellationToken);
 
         return new ChatResponseDto(
             assistantMessage.Id,
@@ -61,20 +64,22 @@ public class ChatService : IChatService
     /// <inheritdoc/>
     public async IAsyncEnumerable<(Guid ConversationId, string Token)> StreamResponseAsync(
         string content,
+        Guid userId,
         Guid? conversationId = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var userMessage = new ChatMessage(content, MessageRole.User);
+        RequireUser(userId);
 
         var conversation = conversationId.HasValue
-            ? await _repository.GetConversationAsync(conversationId.Value, ct)
-              ?? throw new KeyNotFoundException($"Conversation '{conversationId}' not found.")
-            : await _repository.CreateConversationAsync(ct);
+            ? await _repository.GetConversationAsync(conversationId.Value, userId, ct)
+              ?? throw new ConversationNotFoundException(conversationId.Value)
+            : await _repository.CreateConversationAsync(userId, ct);
 
-        await _repository.AddMessageAsync(conversation.Id, userMessage, ct);
+        await _repository.AddMessageAsync(conversation.Id, userId, userMessage, ct);
 
         // Reload so AI receives full history including the just-saved user message
-        var updated = await _repository.GetConversationAsync(conversation.Id, ct)
+        var updated = await _repository.GetConversationAsync(conversation.Id, userId, ct)
             ?? throw new InvalidOperationException("Conversation disappeared after insert.");
 
         var sb = new StringBuilder();
@@ -87,16 +92,18 @@ public class ChatService : IChatService
         if (sb.Length > 0)
         {
             var assistantMessage = new ChatMessage(sb.ToString(), MessageRole.Assistant);
-            await _repository.AddMessageAsync(conversation.Id, assistantMessage, ct);
+            await _repository.AddMessageAsync(conversation.Id, userId, assistantMessage, ct);
         }
     }
 
     /// <inheritdoc/>
     public async Task<ConversationHistoryDto?> GetHistoryAsync(
         Guid conversationId,
+        Guid userId,
         CancellationToken cancellationToken = default)
     {
-        var conversation = await _repository.GetConversationAsync(conversationId, cancellationToken);
+        RequireUser(userId);
+        var conversation = await _repository.GetConversationAsync(conversationId, userId, cancellationToken);
         if (conversation is null)
             return null;
 
@@ -109,5 +116,13 @@ public class ChatService : IChatService
             .ToList();
 
         return new ConversationHistoryDto(conversationId, messages);
+    }
+
+    // An empty id would match no conversation and quietly look like "not found"; failing
+    // loudly exposes a caller that never resolved who is asking.
+    private static void RequireUser(Guid userId)
+    {
+        if (userId == Guid.Empty)
+            throw new ArgumentException("A user id is required.", nameof(userId));
     }
 }

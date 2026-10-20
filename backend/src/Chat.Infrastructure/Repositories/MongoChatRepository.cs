@@ -1,3 +1,4 @@
+using Chat.Application.Exceptions;
 using Chat.Application.Interfaces;
 using Chat.Domain.Entities;
 using Chat.Domain.Enums;
@@ -23,12 +24,15 @@ public class MongoChatRepository : IChatRepository
     }
 
     /// <inheritdoc/>
-    public async Task<Conversation> CreateConversationAsync(CancellationToken ct = default)
+    public async Task<Conversation> CreateConversationAsync(Guid userId, CancellationToken ct = default)
     {
+        // Built through the domain first so an empty owner is refused before anything is stored.
+        var conversation = new Conversation(userId);
         var doc = new ConversationDocument
         {
-            Id = Guid.NewGuid(),
-            CreatedAt = DateTime.UtcNow
+            Id = conversation.Id,
+            OwnerId = conversation.OwnerId,
+            CreatedAt = conversation.CreatedAt
         };
 
         await _conversations.InsertOneAsync(doc, cancellationToken: ct);
@@ -36,17 +40,17 @@ public class MongoChatRepository : IChatRepository
     }
 
     /// <inheritdoc/>
-    public async Task<Conversation?> GetConversationAsync(Guid conversationId, CancellationToken ct = default)
+    public async Task<Conversation?> GetConversationAsync(Guid conversationId, Guid userId, CancellationToken ct = default)
     {
         var doc = await _conversations
-            .Find(d => d.Id == conversationId)
+            .Find(d => d.Id == conversationId && d.OwnerId == userId)
             .FirstOrDefaultAsync(ct);
 
         return doc is null ? null : ToConversation(doc);
     }
 
     /// <inheritdoc/>
-    public async Task AddMessageAsync(Guid conversationId, ChatMessage message, CancellationToken ct = default)
+    public async Task AddMessageAsync(Guid conversationId, Guid userId, ChatMessage message, CancellationToken ct = default)
     {
         var msgDoc = new ChatMessageDocument
         {
@@ -58,32 +62,15 @@ public class MongoChatRepository : IChatRepository
 
         var update = Builders<ConversationDocument>.Update.Push(d => d.Messages, msgDoc);
         var result = await _conversations.UpdateOneAsync(
-            d => d.Id == conversationId, update, cancellationToken: ct);
+            d => d.Id == conversationId && d.OwnerId == userId, update, cancellationToken: ct);
 
         if (result.MatchedCount == 0)
-            throw new KeyNotFoundException($"Conversation '{conversationId}' not found.");
-    }
-
-    /// <inheritdoc/>
-    public async Task<IReadOnlyList<ChatMessage>> GetMessagesAsync(Guid conversationId, CancellationToken ct = default)
-    {
-        var doc = await _conversations
-            .Find(d => d.Id == conversationId)
-            .FirstOrDefaultAsync(ct);
-
-        if (doc is null)
-            throw new KeyNotFoundException($"Conversation '{conversationId}' not found.");
-
-        return doc.Messages
-            .OrderBy(m => m.Timestamp)
-            .Select(m => ToMessage(m))
-            .ToList()
-            .AsReadOnly();
+            throw new ConversationNotFoundException(conversationId);
     }
 
     private static Conversation ToConversation(ConversationDocument doc)
     {
-        var conversation = new Conversation(doc.Id, doc.CreatedAt);
+        var conversation = new Conversation(doc.Id, doc.OwnerId, doc.CreatedAt);
         foreach (var m in doc.Messages.OrderBy(m => m.Timestamp))
             conversation.AddMessage(ToMessage(m));
         return conversation;

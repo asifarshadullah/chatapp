@@ -63,6 +63,30 @@ public class ChatHubFeatureTests
 
         await connection.StopAsync();
     }
+
+    // ── Plan check receives the real caller over long polling ────────────────
+
+    [Fact]
+    public async Task SendMessage_OverLongPolling_ChecksThePlanOfTheSignedInCaller()
+    {
+        await using var factory = new RecordingPlanFeatureFactory();
+        var connection = new HubConnectionBuilder()
+            .WithUrl(new Uri(factory.Server.BaseAddress, "chatHub"), options =>
+            {
+                options.HttpMessageHandlerFactory = _ => factory.Server.CreateHandler();
+                options.Transports = HttpTransportType.LongPolling;
+            })
+            .Build();
+
+        await connection.StartAsync();
+
+        await foreach (var _ in connection.StreamAsync<string>("SendMessage", "Hello", (Guid?)null))
+        { /* drain */ }
+
+        factory.PlanService.CheckedUserIds.Should().Equal(TestAuthHandler.TestUserId);
+
+        await connection.StopAsync();
+    }
 }
 
 /// <summary>
@@ -89,4 +113,38 @@ public class AlwaysDisablePlanFeatureService : IPlanFeatureService
 {
     public Task<bool> IsEnabledAsync(string feature, Guid userId, CancellationToken ct = default)
         => Task.FromResult(false);
+}
+
+/// <summary>
+/// ChatApiFactory variant whose plan service allows chat and records which user each check was for.
+/// </summary>
+public class RecordingPlanFeatureFactory : ChatApiFactory
+{
+    public RecordingPlanFeatureService PlanService { get; } = new();
+
+    protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureServices(services =>
+        {
+            var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPlanFeatureService));
+            if (descriptor is not null)
+                services.Remove(descriptor);
+            services.AddSingleton<IPlanFeatureService>(PlanService);
+        });
+    }
+}
+
+/// <summary>Stub that enables every feature and records the user id of each check.</summary>
+public class RecordingPlanFeatureService : IPlanFeatureService
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<Guid> _checked = new();
+
+    public IReadOnlyCollection<Guid> CheckedUserIds => _checked.ToArray();
+
+    public Task<bool> IsEnabledAsync(string feature, Guid userId, CancellationToken ct = default)
+    {
+        _checked.Enqueue(userId);
+        return Task.FromResult(true);
+    }
 }

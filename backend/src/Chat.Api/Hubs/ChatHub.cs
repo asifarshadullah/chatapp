@@ -1,6 +1,6 @@
+using Chat.Application.Exceptions;
 using Chat.Application.Interfaces;
 using Chat.Billing.Application.Interfaces;
-using Chat.Identity.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using System.Runtime.CompilerServices;
@@ -15,17 +15,24 @@ public class ChatHub : Hub
 {
     private readonly IChatService _chatService;
     private readonly IPlanFeatureService _planFeatureService;
-    private readonly ICurrentUser _currentUser;
 
     /// <summary>
-    /// Initializes ChatHub with the application chat service, plan feature service, and current user.
+    /// Initializes ChatHub with the application chat service and plan feature service.
     /// </summary>
-    public ChatHub(IChatService chatService, IPlanFeatureService planFeatureService, ICurrentUser currentUser)
+    public ChatHub(IChatService chatService, IPlanFeatureService planFeatureService)
     {
         _chatService = chatService;
         _planFeatureService = planFeatureService;
-        _currentUser = currentUser;
     }
+
+    /// <summary>
+    /// The caller, read from the authenticated connection rather than the current HTTP request.
+    /// Under long polling the request that delivered the message has already ended when a hub
+    /// method runs, so only the connection still knows who is calling. Empty when the
+    /// connection carries no valid 'sub' claim.
+    /// </summary>
+    private Guid CallerId =>
+        Guid.TryParse(Context.User?.FindFirst("sub")?.Value, out var id) ? id : Guid.Empty;
 
     /// <summary>
     /// Accepts a user message, saves it, then streams AI response tokens one at a time.
@@ -43,14 +50,35 @@ public class ChatHub : Hub
         if (string.IsNullOrWhiteSpace(message))
             throw new HubException("Message cannot be empty.");
 
-        var chatEnabled = await _planFeatureService.IsEnabledAsync("chat", _currentUser.UserId, cancellationToken);
+        var userId = CallerId;
+
+        var chatEnabled = await _planFeatureService.IsEnabledAsync("chat", userId, cancellationToken);
         if (!chatEnabled)
             throw new HubException("Chat is not available on your current plan.");
 
         bool conversationIdSent = false;
 
-        await foreach (var (convId, token) in _chatService.StreamResponseAsync(message, conversationId, cancellationToken))
+        // Stepped by hand because C# forbids yield inside a try that has a catch. The
+        // conversation is looked up before the first item, so a refusal surfaces on the first
+        // MoveNextAsync, before any conversation id or token reaches the caller.
+        await using var items = _chatService
+            .StreamResponseAsync(message, userId, conversationId, cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+
+        while (true)
         {
+            try
+            {
+                if (!await items.MoveNextAsync())
+                    break;
+            }
+            catch (ConversationNotFoundException)
+            {
+                // Same answer whether the conversation is missing or someone else's.
+                throw new HubException("Conversation not found.");
+            }
+
+            var (convId, token) = items.Current;
             if (!conversationIdSent)
             {
                 await Clients.Caller.SendAsync("ReceiveConversationId", convId, cancellationToken);

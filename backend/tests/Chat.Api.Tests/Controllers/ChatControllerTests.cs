@@ -12,10 +12,15 @@ namespace Chat.Api.Tests.Controllers;
 /// </summary>
 public class ChatControllerTests : IClassFixture<ChatApiFactory>
 {
+    private static readonly Guid Alice = Guid.NewGuid();
+    private static readonly Guid Bob = Guid.NewGuid();
+
+    private readonly ChatApiFactory _factory;
     private readonly HttpClient _client;
 
     public ChatControllerTests(ChatApiFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -121,5 +126,89 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
         var history = await response.Content.ReadFromJsonAsync<ConversationHistoryDto>();
 
         history!.Messages.Should().HaveCount(4); // user + echo + user + echo
+    }
+
+    // ── Ownership ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetHistory_OfAnotherUsersConversation_ReturnsNotFound()
+    {
+        var alices = await StartConversationAs(Alice, "Alice's secret");
+
+        var response = await GetHistoryAs(Bob, alices);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task GetHistory_OfAnotherUsersConversation_AsAdministrator_ReturnsNotFound()
+    {
+        var alices = await StartConversationAs(Alice, "Alice's secret");
+
+        var response = await GetHistoryAs(Guid.NewGuid(), alices, role: "Admin");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task PostMessage_IntoAnotherUsersConversation_ReturnsNotFoundAndChangesNothing()
+    {
+        var alices = await StartConversationAs(Alice, "Alice's secret");
+        var createdBefore = _factory.Repository.ConversationsCreated;
+        var aiCallsBefore = _factory.Ai.Calls;
+
+        var response = await PostAs(Bob, new ChatRequestDto("Intruder", alices));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        _factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+        _factory.Ai.Calls.Should().Be(aiCallsBefore);
+        var history = await (await GetHistoryAs(Alice, alices)).Content.ReadFromJsonAsync<ConversationHistoryDto>();
+        history!.Messages.Select(m => m.Content).Should().Equal("Alice's secret", "Fake AI response");
+    }
+
+    [Fact]
+    public async Task PostMessage_WithUnknownConversationId_ReturnsNotFound()
+    {
+        var createdBefore = _factory.Repository.ConversationsCreated;
+
+        var response = await PostAs(Bob, new ChatRequestDto("Hello", Guid.NewGuid()));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        _factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+    }
+
+    [Fact]
+    public async Task PostMessage_EmptyIntoAnotherUsersConversation_ReturnsBadRequest()
+    {
+        var alices = await StartConversationAs(Alice, "Alice's secret");
+
+        var response = await PostAs(Bob, new ChatRequestDto("", alices));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var history = await (await GetHistoryAs(Alice, alices)).Content.ReadFromJsonAsync<ConversationHistoryDto>();
+        history!.Messages.Select(m => m.Content).Should().Equal("Alice's secret", "Fake AI response");
+    }
+
+    private async Task<Guid> StartConversationAs(Guid user, string message)
+    {
+        var response = await PostAs(user, new ChatRequestDto(message));
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<ChatResponseDto>())!.ConversationId;
+    }
+
+    private Task<HttpResponseMessage> PostAs(Guid user, ChatRequestDto request)
+    {
+        var message = new HttpRequestMessage(HttpMethod.Post, "/api/chat") { Content = JsonContent.Create(request) };
+        message.Headers.Add(TestAuthHandler.UserHeader, user.ToString());
+        return _client.SendAsync(message);
+    }
+
+    private Task<HttpResponseMessage> GetHistoryAs(Guid user, Guid conversationId, string? role = null)
+    {
+        var message = new HttpRequestMessage(HttpMethod.Get, $"/api/chat/{conversationId}/history");
+        message.Headers.Add(TestAuthHandler.UserHeader, user.ToString());
+        if (role is not null)
+            message.Headers.Add(TestAuthHandler.RoleHeader, role);
+        return _client.SendAsync(message);
     }
 }

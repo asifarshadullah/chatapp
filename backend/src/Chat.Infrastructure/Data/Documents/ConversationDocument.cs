@@ -10,6 +10,13 @@ internal class ConversationDocument
     [BsonRepresentation(BsonType.String)]
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// The user who owns the conversation. Documents written before ownership existed have no
+    /// such field, so no owner filter ever matches them.
+    /// </summary>
+    [BsonRepresentation(BsonType.String)]
+    public Guid OwnerId { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     public List<ChatMessageDocument> Messages { get; set; } = new();
