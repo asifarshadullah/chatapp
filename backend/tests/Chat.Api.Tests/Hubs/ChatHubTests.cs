@@ -114,15 +114,16 @@ public class ChatHubTests : IClassFixture<ChatApiFactory>
     public async Task SendMessage_WithExistingConversationId_ContinuesSameConversation()
     {
         var connection = CreateHubConnection();
-        Guid? firstConversationId = null;
-        connection.On<Guid>("ReceiveConversationId", id => firstConversationId ??= id);
+        var firstId = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        connection.On<Guid>("ReceiveConversationId", id => firstId.TrySetResult(id));
         await connection.StartAsync();
         try
         {
             await foreach (var _ in connection.StreamAsync<string>(
                 "SendMessage", "First", (Guid?)null, CancellationToken.None)) { }
 
-            firstConversationId.Should().NotBeNull();
+            // The id handler can still be pending when the stream completes, so wait for it.
+            Guid? firstConversationId = await firstId.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             await foreach (var _ in connection.StreamAsync<string>(
                 "SendMessage", "Second", firstConversationId, CancellationToken.None)) { }
