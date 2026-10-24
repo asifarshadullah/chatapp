@@ -3,32 +3,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatWindow } from '../ChatWindow'
+import { streamMessage } from '../../services/chatApi'
+import type { StreamCallbacks } from '../../services/chatApi'
+import { authService } from '../../services/authService'
 import {
-  signalRService,
   SessionExpiredError,
+  RenewalFailedError,
   SESSION_EXPIRED_MESSAGE,
   CONNECT_FAILED_MESSAGE,
-} from '../../services/signalRService'
-import type { StreamCallbacks } from '../../services/signalRService'
+} from '../../services/sessionErrors'
 
-import { RenewalFailedError } from '../../services/sessionErrors'
-
-vi.mock('../../services/signalRService', async (importOriginal) => ({
-  // Keep the real error class and message constants: the component compares
-  // against them, so stubbing them out would make these tests pass on
-  // mismatched strings.
-  ...(await importOriginal<typeof import('../../services/signalRService')>()),
-  signalRService: {
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-    sendMessage: vi.fn(),
-  },
+vi.mock('../../services/chatApi', async (importOriginal) => ({
+  // Real constants, so the component's string comparisons are tested for real.
+  ...(await importOriginal<typeof import('../../services/chatApi')>()),
+  streamMessage: vi.fn(),
 }))
 
 const CONVERSATION_ID = 'conv-123'
 
 function mockStream(words: string[], conversationId = CONVERSATION_ID) {
-  vi.mocked(signalRService.sendMessage).mockImplementation(
+  vi.mocked(streamMessage).mockImplementation(
     async (_msg: string, _convId: string | undefined, callbacks: StreamCallbacks) => {
       callbacks.onConversationId(conversationId)
       words.forEach((w) => callbacks.onWord(w))
@@ -40,8 +34,7 @@ function mockStream(words: string[], conversationId = CONVERSATION_ID) {
 describe('ChatWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(signalRService.start).mockResolvedValue(undefined)
-    vi.mocked(signalRService.stop).mockResolvedValue(undefined)
+    vi.spyOn(authService, 'getValidToken').mockResolvedValue('token')
   })
 
   // Cycle 1 — renders ChatInput and MessageList
@@ -71,7 +64,7 @@ describe('ChatWindow', () => {
 
   // Cycle 4 — disables input while streaming
   it('disables input while streaming response', async () => {
-    vi.mocked(signalRService.sendMessage).mockImplementation(
+    vi.mocked(streamMessage).mockImplementation(
       () => new Promise(() => {}), // never resolves — holds isStreaming=true
     )
     render(<ChatWindow />)
@@ -82,7 +75,7 @@ describe('ChatWindow', () => {
 
   // Cycle 5 — shows error on streaming failure
   it('shows error message when streaming fails', async () => {
-    vi.mocked(signalRService.sendMessage).mockImplementation(
+    vi.mocked(streamMessage).mockImplementation(
       async (_msg, _convId, { onError }: StreamCallbacks) => {
         onError('Connection error')
       },
@@ -94,8 +87,8 @@ describe('ChatWindow', () => {
   })
 
   // Cycle 6 — passes conversationId in subsequent requests
-  it('passes conversationId to subsequent sendMessage calls', async () => {
-    const spy = vi.mocked(signalRService.sendMessage)
+  it('passes conversationId to subsequent sends', async () => {
+    const spy = vi.mocked(streamMessage)
     mockStream(['Echo: ', 'response '])
     render(<ChatWindow />)
 
@@ -107,8 +100,8 @@ describe('ChatWindow', () => {
     await userEvent.click(screen.getByRole('button', { name: /send/i }))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
 
-    expect(spy).toHaveBeenNthCalledWith(1, 'First', undefined, expect.any(Object))
-    expect(spy).toHaveBeenNthCalledWith(2, 'Second', CONVERSATION_ID, expect.any(Object))
+    expect(spy).toHaveBeenNthCalledWith(1, 'First', undefined, expect.any(Object), expect.any(AbortSignal))
+    expect(spy).toHaveBeenNthCalledWith(2, 'Second', CONVERSATION_ID, expect.any(Object), expect.any(AbortSignal))
   })
 
   // ── Cycle 2.2 ──────────────────────────────────────────────────────────
@@ -124,7 +117,7 @@ describe('ChatWindow', () => {
   // ── Cycle 2.3 ──────────────────────────────────────────────────────────
 
   it('shows typing indicator while streaming', async () => {
-    vi.mocked(signalRService.sendMessage).mockImplementation(
+    vi.mocked(streamMessage).mockImplementation(
       () => new Promise(() => {}), // never resolves — holds isStreaming=true
     )
     render(<ChatWindow />)
@@ -150,16 +143,16 @@ describe('ChatWindow', () => {
   // ── Cycle 2.5 ──────────────────────────────────────────────────────────
 
   it('shows error banner when connection fails', async () => {
-    vi.mocked(signalRService.sendMessage).mockImplementation(
+    vi.mocked(streamMessage).mockImplementation(
       async (_msg, _convId, { onError }: StreamCallbacks) => {
-        onError('SignalR connection lost')
+        onError('Connection lost')
       },
     )
     render(<ChatWindow />)
     await userEvent.type(screen.getByRole('textbox'), 'Hello')
     await userEvent.click(screen.getByRole('button', { name: /send/i }))
     await waitFor(() =>
-      expect(screen.getByRole('alert')).toHaveTextContent('SignalR connection lost'),
+      expect(screen.getByRole('alert')).toHaveTextContent('Connection lost'),
     )
   })
 
@@ -186,79 +179,23 @@ describe('ChatWindow', () => {
     expect(onManageBilling).toHaveBeenCalledOnce()
   })
 
-  // ── Connection lifecycle regressions ──────────────────────────────────
-  //
-  // The chat page once showed "Failed to connect to chat server." on every
-  // load in dev while the hub was perfectly healthy: StrictMode's remount
-  // raced the unmount cleanup, which stopped the connection the remount was
-  // waiting on. These pin the contract that prevents it recurring.
+  // ── Checking the session when the chat opens ──────────────────────────
 
-  it('does not stop the shared connection when it unmounts', () => {
-    const { unmount } = render(<ChatWindow />)
-    unmount()
-    // The connection is a module singleton meant to outlive one component.
-    // Stopping it here aborts a connect a remount may already be awaiting.
-    expect(signalRService.stop).not.toHaveBeenCalled()
-  })
-
-  it('shows no connection error under StrictMode double mounting', async () => {
-    // The mock mirrors the real client on the one point that matters here:
-    // stopping a connection mid-negotiation rejects the pending start. Without
-    // that, a mocked start() always resolves and the race cannot be observed.
-    let rejectPending: ((e: Error) => void) | null = null
-    vi.mocked(signalRService.start).mockImplementation(
-      () => new Promise<void>((resolve, reject) => {
-        rejectPending = reject
-        setTimeout(() => { rejectPending = null; resolve() }, 0)
-      }),
-    )
-    vi.mocked(signalRService.stop).mockImplementation(async () => {
-      rejectPending?.(new Error('The connection was stopped during negotiation.'))
-    })
-
-    render(
-      <StrictMode>
-        <ChatWindow />
-      </StrictMode>,
-    )
-
-    await waitFor(() => expect(signalRService.start).toHaveBeenCalled())
-    await new Promise((r) => setTimeout(r, 10))
-    expect(screen.queryByText(CONNECT_FAILED_MESSAGE)).not.toBeInTheDocument()
-  })
-
-  it('shows the connection error when the connect genuinely fails', async () => {
-    vi.mocked(signalRService.start).mockRejectedValue(new Error('transport failure'))
+  it('renews the token when it opens', async () => {
     render(<ChatWindow />)
-    expect(await screen.findByText(CONNECT_FAILED_MESSAGE)).toBeInTheDocument()
+    await waitFor(() => expect(authService.getValidToken).toHaveBeenCalled())
   })
 
-  // ── Expired session must not read as an unreachable server ────────────
-
-  it('reports an expired session distinctly, not as a dead server', async () => {
-    vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+  it('reports an ended session on opening, not as a dead server', async () => {
+    vi.mocked(authService.getValidToken).mockRejectedValue(new SessionExpiredError())
     render(<ChatWindow />)
 
     expect(await screen.findByText(SESSION_EXPIRED_MESSAGE)).toBeInTheDocument()
     expect(screen.queryByText(CONNECT_FAILED_MESSAGE)).not.toBeInTheDocument()
   })
 
-  it('does not end the session when a renewal merely failed', async () => {
-    // The parent's handler for an ended session revokes the refresh credential server-side,
-    // which would sign out every other tab of this session. A renewal that lost a race to a
-    // sibling must therefore reach the user as an ordinary transient failure.
-    vi.mocked(signalRService.start).mockRejectedValue(new RenewalFailedError())
-    const onSessionExpired = vi.fn()
-
-    render(<ChatWindow onSessionExpired={onSessionExpired} />)
-
-    expect(await screen.findByText(CONNECT_FAILED_MESSAGE)).toBeInTheDocument()
-    expect(screen.queryByText(SESSION_EXPIRED_MESSAGE)).not.toBeInTheDocument()
-    expect(onSessionExpired).not.toHaveBeenCalled()
-  })
-
-  it('notifies the parent so an expired session returns to sign in', async () => {
-    vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+  it('notifies the parent so an ended session returns to sign in', async () => {
+    vi.mocked(authService.getValidToken).mockRejectedValue(new SessionExpiredError())
     const onSessionExpired = vi.fn()
 
     render(<ChatWindow onSessionExpired={onSessionExpired} />)
@@ -266,8 +203,51 @@ describe('ChatWindow', () => {
     await waitFor(() => expect(onSessionExpired).toHaveBeenCalledOnce())
   })
 
+  it('stays quiet and keeps the session when a renewal on opening merely failed', async () => {
+    // Ending the session here would sign out every other tab of it.
+    vi.mocked(authService.getValidToken).mockRejectedValue(new RenewalFailedError())
+    const onSessionExpired = vi.fn()
+
+    render(<ChatWindow onSessionExpired={onSessionExpired} />)
+
+    await waitFor(() => expect(authService.getValidToken).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 10))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(onSessionExpired).not.toHaveBeenCalled()
+  })
+
+  it('shows no error under StrictMode double mounting', async () => {
+    render(
+      <StrictMode>
+        <ChatWindow />
+      </StrictMode>,
+    )
+
+    await waitFor(() => expect(authService.getValidToken).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 10))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  // ── A reply in flight belongs to the window that asked for it ─────────
+
+  it('aborts the reply in flight when it unmounts', async () => {
+    let signal: AbortSignal | undefined
+    vi.mocked(streamMessage).mockImplementation((_msg, _convId, _callbacks, s) => {
+      signal = s
+      return new Promise(() => {})
+    })
+    const { unmount } = render(<ChatWindow />)
+    await userEvent.type(screen.getByRole('textbox'), 'Hello')
+    await userEvent.click(screen.getByRole('button', { name: /send/i }))
+    await waitFor(() => expect(signal).toBeDefined())
+
+    unmount()
+
+    expect(signal!.aborted).toBe(true)
+  })
+
   it('notifies the parent when a send fails on an expired session', async () => {
-    vi.mocked(signalRService.sendMessage).mockImplementation(
+    vi.mocked(streamMessage).mockImplementation(
       async (_msg: string, _convId: string | undefined, callbacks: StreamCallbacks) => {
         callbacks.onError(SESSION_EXPIRED_MESSAGE)
       },
@@ -282,7 +262,7 @@ describe('ChatWindow', () => {
   })
 
   it('does not treat an ordinary stream error as an expired session', async () => {
-    vi.mocked(signalRService.sendMessage).mockImplementation(
+    vi.mocked(streamMessage).mockImplementation(
       async (_msg: string, _convId: string | undefined, callbacks: StreamCallbacks) => {
         callbacks.onError('Connection error')
       },

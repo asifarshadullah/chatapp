@@ -3,7 +3,6 @@ import { ThemeProvider, createTheme, CssBaseline, Box, CircularProgress } from '
 import { ChatWindow } from './components/ChatWindow'
 import { LoginPage } from './components/LoginPage'
 import { BillingPage } from './components/BillingPage'
-import { signalRService } from './services/signalRService'
 import { authService } from './services/authService'
 
 const theme = createTheme({
@@ -43,7 +42,6 @@ function App() {
    * what signing out means.
    */
   function endSession() {
-    signalRService.stop()
     authService.logout()
     setIsAuthenticated(false)
   }
@@ -60,7 +58,6 @@ function App() {
    * destructive one the default.
    */
   function abandonSession() {
-    signalRService.stop()
     authService.clearLocal()
     setIsAuthenticated(false)
   }
