@@ -148,6 +148,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("CanChat",              p => p.AddRequirements(new PermissionRequirement("conversation:create")));
+    options.AddPolicy("CanReadConversation",  p => p.AddRequirements(new PermissionRequirement("conversation:read")));
     options.AddPolicy("CanShareConversation", p => p.AddRequirements(new PermissionRequirement("conversation:share")));
     options.AddPolicy("CanInviteUsers",       p => p.AddRequirements(new PermissionRequirement("user:invite")));
     options.AddPolicy("AdminOnly",            p => p.AddRequirements(new PermissionRequirement("*")));

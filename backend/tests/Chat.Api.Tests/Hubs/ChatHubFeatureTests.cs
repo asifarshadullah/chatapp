@@ -1,5 +1,10 @@
+using System.Net;
+using System.Net.Http.Json;
 using Chat.Api.Tests.Infrastructure;
+using Chat.Application.DTOs;
 using Chat.Billing.Application.Interfaces;
+using Chat.Domain.Entities;
+using Chat.Domain.Enums;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -37,6 +42,23 @@ public class ChatHubFeatureTests
             .WithMessage("*plan*");
 
         await connection.StopAsync();
+    }
+
+    // ── Reading history does not depend on the plan ──────────────────────────
+
+    [Fact]
+    public async Task GetHistory_WhenChatFeatureDisabled_StillReturnsOwnHistory()
+    {
+        await using var factory = new DisabledChatFeatureFactory();
+        var conversation = await factory.Repository.CreateConversationAsync(TestAuthHandler.TestUserId);
+        await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Hello", MessageRole.User));
+        await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Earlier reply", MessageRole.Assistant));
+
+        var response = await factory.CreateClient().GetAsync($"/api/chat/{conversation.Id}/history");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var history = await response.Content.ReadFromJsonAsync<ConversationHistoryDto>();
+        history!.Messages.Select(m => m.Content).Should().Equal("Hello", "Earlier reply");
     }
 
     // ── Cycle 4.2 — feature enabled → streams response ───────────────────────
