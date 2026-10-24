@@ -6,7 +6,7 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![MongoDB 7](https://img.shields.io/badge/MongoDB-7-47A248?logo=mongodb&logoColor=white)
-![SignalR](https://img.shields.io/badge/SignalR-Streaming-512BD4)
+![SSE](https://img.shields.io/badge/Server--Sent_Events-Streaming-512BD4)
 ![Tests](https://img.shields.io/badge/tests-119%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
@@ -16,7 +16,7 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 
 ## Features
 
-- **Real-time streaming** — word-by-word LLM responses via SignalR `IAsyncEnumerable<string>`
+- **Real-time streaming** — word-by-word LLM responses as server-sent events over one HTTP request
 - **Local LLM integration** — Ollama-backed AI provider with a swappable `IAiProvider` interface
 - **Authentication** — JWT access tokens and Google OAuth 2.0
 - **Authorization** — role-based permission policies (`CanChat`, `AdminOnly`, etc.) with 5-minute cached role lookups
@@ -35,7 +35,7 @@ The codebase is split into three independent **bounded contexts** (Chat, Identit
 ```mermaid
 flowchart TB
     subgraph API["Chat.Api (composition root)"]
-        Controllers["Controllers + SignalR Hubs"]
+        Controllers["Controllers"]
     end
 
     subgraph Chat["Chat context"]
@@ -75,23 +75,27 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     participant Browser
-    participant Hub as ChatHub (SignalR)
+    participant Api as ChatController
     participant Svc as ChatService
     participant Ollama as OllamaAiProvider
     participant Mongo as MongoDB
 
-    Browser->>Hub: SendMessage(content, conversationId?)
-    Hub->>Svc: StreamResponseAsync(content, conversationId)
-    Svc->>Mongo: Persist user message
+    Browser->>Api: POST /api/chat/messages {message, conversationId?}
+    Api->>Api: Check permission, content and plan
+    Api->>Svc: StreamResponseAsync(content, conversationId)
+    Svc->>Mongo: Check ownership, persist user message
     Svc->>Mongo: Load conversation history
     Svc->>Ollama: StreamAsync(history)
-    Hub-->>Browser: ReceiveConversationId(id)
-    loop Token stream
+    Ollama-->>Svc: first token
+    Svc-->>Api: (conversationId, token)
+    Api-->>Browser: 200 text/event-stream<br/>event: conversation, event: token
+    loop Remaining tokens
         Ollama-->>Svc: token
-        Svc-->>Hub: (conversationId, token)
-        Hub-->>Browser: token (word-by-word)
+        Svc-->>Api: (conversationId, token)
+        Api-->>Browser: event: token
     end
     Svc->>Mongo: Persist complete assistant message
+    Api-->>Browser: event: done
 ```
 
 ---
@@ -100,10 +104,10 @@ sequenceDiagram
 
 | Category | Technology |
 |----------|-----------|
-| Backend | .NET 8, ASP.NET Core (Controllers), SignalR |
+| Backend | .NET 8, ASP.NET Core (Controllers) |
 | Frontend | React 19, TypeScript 5, Vite, MUI |
 | Database | MongoDB 7 (Docker Compose) |
-| Real-time | SignalR with `IAsyncEnumerable` server streaming |
+| Real-time | Server-sent events from an `IAsyncEnumerable` reply, read with `fetch` |
 | AI / LLM | Ollama (OllamaSharp 4.0) — local inference, swappable via `IAiProvider` |
 | Payments | Stripe (Stripe.net 45) — Checkout + webhooks |
 | Auth | JWT bearer tokens + Google OAuth 2.0 |
@@ -118,7 +122,7 @@ sequenceDiagram
 ```
 backend/
 ├── src/
-│   ├── Chat.Api/                     # Composition root — controllers, hubs, DI
+│   ├── Chat.Api/                     # Composition root — controllers, DI
 │   ├── Chat.Domain/                  # Conversation, ChatMessage entities
 │   ├── Chat.Application/             # ChatService, IAiProvider, DTOs
 │   ├── Chat.Infrastructure/          # MongoChatRepository, OllamaAiProvider
@@ -243,13 +247,13 @@ The Application layer defines *what it needs* (`IAiProvider` with `StreamAsync(I
 
 Instead of one monolithic `Chat.Domain`, each concern is its own independent context with its own Domain, Application, and Infrastructure projects. They share only `Guid UserId` across boundaries — no entity leakage, no cross-context imports. The payoff: adding Stripe billing didn't force changes to messaging or auth; adding Google OAuth didn't force changes to billing. Context boundaries are enforced by project references at compile time, not by discipline at review time.
 
-### 3. SignalR server streaming with `IAsyncEnumerable<(Guid, string)>`
+### 3. Server-sent events over one request per reply
 
-The hub method returns `IAsyncEnumerable<string>` directly — no custom message protocol, no manual connection lifecycle. SignalR handles backpressure, cancellation, and delivery. The tuple carries the `conversationId` on every yield so the client can associate streamed tokens with the right conversation. A separate `ReceiveConversationId` message fires before the first token so the UI can update routing state before any render.
+Each message is a `POST /api/chat/messages` whose response streams the reply as server-sent events: the conversation id, then each token, then an end marker. The traffic is a request with a streamed response, so it travels as one: the token rides in the `Authorization` header like every other call, refusals are ordinary 400/403/404 responses sent before the stream starts, closing the request stops the model, and any instance can serve any reply. `ChatService.StreamResponseAsync` stays an `IAsyncEnumerable<(Guid, string)>`, and the controller only frames and flushes it. This replaced a SignalR hub whose persistent connection the app never needed; [ADR 0002](docs/architecture/decisions/0002-stream-chat-replies-over-sse.md) records why.
 
 ### 4. Feature gating via `IPlanFeatureService` in `Chat.Billing.Application`
 
-Cross-cutting concerns often end up in the wrong layer. Feature flags aren't an Identity concern (they're not about *who* you are) and aren't a Chat concern (they're not about *how* messaging works) — they're a billing concern (what your plan *entitles* you to). `ChatHub` calls `IPlanFeatureService.IsFeatureEnabled(userId, Feature.Chat)` before streaming; `RealPlanFeatureService` lives in Billing.Infrastructure and makes the subscription/plan decision. Placing the interface in the billing context, not in `Chat.Application`, is what keeps the dependency graph one-way.
+Cross-cutting concerns often end up in the wrong layer. Feature flags aren't an Identity concern (they're not about *who* you are) and aren't a Chat concern (they're not about *how* messaging works) — they're a billing concern (what your plan *entitles* you to). The chat endpoint calls `IPlanFeatureService.IsEnabledAsync("chat", userId)` before streaming; `RealPlanFeatureService` lives in Billing.Infrastructure and makes the subscription/plan decision. Placing the interface in the billing context, not in `Chat.Application`, is what keeps the dependency graph one-way.
 
 Longer write-ups live in [docs/architecture/](docs/architecture/) — the trade-offs behind the context split and the MongoDB document design, and a scenario followed from requirement through design to a retrospective on where the up-front design turned out to be wrong.
 
