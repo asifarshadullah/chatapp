@@ -7,32 +7,48 @@ no route to the AI model or to stored conversations skips those checks.
 
 ## Requirements
 
-### Requirement: Messages are sent only over the real-time connection
+### Requirement: Messages are sent only through the streaming endpoint
 
-The system SHALL accept chat messages only over the real-time connection, which requires
-the `conversation:create` permission and a plan that includes chat. The system SHALL NOT
-offer any HTTP endpoint that accepts a chat message or returns an AI reply.
+The system SHALL accept chat messages only through the streaming endpoint, which requires a
+signed-in caller, the `conversation:create` permission and a plan that includes chat. A
+refused message SHALL NOT reach the AI model and SHALL NOT create a conversation. The system
+SHALL NOT offer a real-time connection for chat.
 
-#### Scenario: Caller without the create permission opens the real-time connection
+#### Scenario: Caller who is not signed in sends a message
 
-- **WHEN** a user whose role does not grant `conversation:create` opens the real-time
-  connection
-- **THEN** the connection is refused with forbidden
-- **AND** no message can be sent over it
-
-#### Scenario: Caller whose plan does not include chat sends over the real-time connection
-
-- **WHEN** a user whose role grants `conversation:create` but whose plan does not include
-  chat sends a message over the real-time connection
-- **THEN** the call fails with the error "Chat is not available on your current plan."
-- **AND** no AI reply is generated
-
-#### Scenario: Sending a message over HTTP
-
-- **WHEN** a signed-in user sends a chat message as an HTTP POST to the chat API
-- **THEN** the system responds with not found
+- **WHEN** a caller who is not signed in sends a message to the streaming endpoint
+- **THEN** the system responds with unauthorized
 - **AND** no AI reply is generated
 - **AND** no conversation is created
+
+#### Scenario: Caller without the create permission sends a message
+
+- **WHEN** a user whose role does not grant `conversation:create` sends a message to the
+  streaming endpoint
+- **THEN** the system responds with forbidden
+- **AND** no AI reply is generated
+- **AND** no conversation is created
+
+#### Scenario: Caller with the create permission sends a message
+
+- **WHEN** a user whose role grants `conversation:create`, and whose plan includes chat,
+  sends a message to the streaming endpoint
+- **THEN** the system streams the AI reply
+
+#### Scenario: Caller whose plan does not include chat sends a message
+
+- **WHEN** a user whose role grants `conversation:create` but whose plan does not include
+  chat sends a message to the streaming endpoint
+- **THEN** the system responds with forbidden and the error "Chat is not available on your
+  current plan."
+- **AND** no AI reply is generated
+- **AND** no conversation is created
+
+#### Scenario: Opening a real-time chat connection
+
+- **WHEN** a signed-in user tries to open the real-time chat connection the system used to
+  offer
+- **THEN** the system responds with not found
 
 ### Requirement: Reading a conversation's history requires the read permission
 

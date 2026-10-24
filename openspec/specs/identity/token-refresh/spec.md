@@ -237,7 +237,9 @@ A consumed credential SHALL still be retained long enough for a replay of it to 
 
 The client SHALL obtain a new access token before the current one lapses, and SHALL retry a
 single time after a request is refused for an expired access token. A renewal in progress
-SHALL be shared by all concurrent callers rather than triggering a renewal each.
+SHALL be shared by all concurrent callers rather than triggering a renewal each. Opening
+the chat SHALL check the session, so a session that can no longer be renewed is noticed
+when the chat opens rather than on the first message.
 
 #### Scenario: Renewal happens ahead of expiry
 
@@ -258,8 +260,8 @@ SHALL be shared by all concurrent callers rather than triggering a renewal each.
 
 #### Scenario: The streaming connection waits for renewal
 
-- **WHEN** the chat connection needs a token while a renewal is in progress
-- **THEN** the connection waits for the renewal and then connects
+- **WHEN** a chat message is sent while a renewal is in progress
+- **THEN** the message waits for the renewal and is then sent with the renewed token
 - **AND** it does not fail as though the session had ended
 
 #### Scenario: A failed renewal ends the session honestly
@@ -267,6 +269,13 @@ SHALL be shared by all concurrent callers rather than triggering a renewal each.
 - **WHEN** renewal is refused because the refresh credential is expired or revoked
 - **THEN** the user is returned to the sign-in form
 - **AND** the reason is reported as an ended session, not as an unreachable server
+
+#### Scenario: Opening the chat with a token that can no longer be renewed
+
+- **WHEN** the chat opens with an access token that is stale but not yet expired
+- **AND** renewal is refused
+- **THEN** the user is returned to the sign-in form before sending anything
+- **AND** the refresh credential is not revoked
 
 #### Scenario: Renewal is not attempted without a credential
 
