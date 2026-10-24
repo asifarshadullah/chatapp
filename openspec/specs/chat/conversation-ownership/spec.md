@@ -7,24 +7,17 @@ conversation's id is never enough to read it, add to it, or learn that it exists
 
 ## Requirements
 
-### Requirement: A conversation belongs to the user who starts it
+### Requirement: A conversation is owned by the user who starts it
 
 The system SHALL record the signed-in user who starts a conversation as its owner.
 Ownership SHALL NOT change for the life of the conversation.
 
 #### Scenario: Sending without a conversation id starts a conversation owned by the sender
 
-- **WHEN** a signed-in user sends a message without a conversation id over the real-time
-  connection
+- **WHEN** a signed-in user sends a message without a conversation id to the streaming
+  endpoint
 - **THEN** a new conversation is created with that user as its owner
-- **AND** the response carries the new conversation's id
-
-#### Scenario: Ownership does not depend on how the real-time connection is carried
-
-- **WHEN** a signed-in user sends a message without a conversation id over a real-time
-  connection, whether it runs over a persistent socket or falls back to repeated short
-  HTTP requests
-- **THEN** a new conversation is created with that user as its owner
+- **AND** the stream carries the new conversation's id
 
 ### Requirement: Only the owner can read a conversation
 
@@ -52,7 +45,7 @@ considered (see chat-access).
   conversation owned by someone else
 - **THEN** the system responds with not found
 
-### Requirement: Only the owner can add to a conversation
+### Requirement: Only the owner can send into a conversation
 
 The system SHALL accept a message into an existing conversation only from its owner. A
 refused message SHALL leave the conversation unchanged, SHALL NOT be sent to the AI model,
@@ -60,33 +53,41 @@ and SHALL NOT start a new conversation in its place.
 
 #### Scenario: Owner continues their conversation
 
-- **WHEN** a user sends a message naming a conversation they own
-- **THEN** the message and the AI reply are added to that conversation
+- **WHEN** a user sends a message to the streaming endpoint naming a conversation they own
+- **THEN** the stream carries that conversation's id
+- **AND** the message and the AI reply are added to that conversation
 
-#### Scenario: Another user sends into the conversation over the real-time connection
+#### Scenario: Another user sends into the conversation
 
-- **WHEN** a signed-in user sends a message over the real-time connection naming a
-  conversation owned by someone else
-- **THEN** the call fails with the error "Conversation not found."
+- **WHEN** a signed-in user sends a message to the streaming endpoint naming a conversation
+  owned by someone else
+- **THEN** the system responds with not found and the error "Conversation not found."
 - **AND** no conversation id and no reply tokens are sent to the caller
 - **AND** the owner's conversation is unchanged
 - **AND** no new conversation is created
 
-### Requirement: A message is validated before its conversation is looked up
+### Requirement: A message's content is checked before its conversation
 
 The system SHALL validate the message itself before looking at the conversation it names.
 A message that is empty, whitespace only, or longer than the allowed length SHALL be refused
 for its content, whatever conversation it names, so the answer reveals nothing about that
 conversation.
 
-#### Scenario: Empty message naming another user's conversation over the real-time connection
+#### Scenario: Empty message naming another user's conversation
 
-- **WHEN** a signed-in user sends an empty message over the real-time connection naming a
+- **WHEN** a signed-in user sends an empty message to the streaming endpoint naming a
   conversation owned by someone else
-- **THEN** the call fails with the error "Message cannot be empty."
+- **THEN** the system responds with bad request and the error "Message cannot be empty."
 - **AND** the owner's conversation is unchanged
 
-### Requirement: Refusing a conversation does not reveal that it exists
+#### Scenario: Over-long message naming another user's conversation
+
+- **WHEN** a signed-in user sends a message longer than the allowed length to the streaming
+  endpoint naming a conversation owned by someone else
+- **THEN** the system responds with bad request and an error that the message is too long
+- **AND** the owner's conversation is unchanged
+
+### Requirement: A refused conversation looks the same as a missing one
 
 The system SHALL answer a request for a conversation the caller does not own exactly as it
 answers a request for a conversation id that does not exist, on every path that accepts a
@@ -98,12 +99,12 @@ conversation id.
   conversation id that does not exist
 - **THEN** the system responds with not found
 
-#### Scenario: Unknown id when sending over the real-time connection
+#### Scenario: Unknown id when sending
 
-- **WHEN** a signed-in user sends a message over the real-time connection naming a
-  conversation id that does not exist
-- **THEN** the call fails with the error "Conversation not found.", the same error as for
-  a conversation owned by someone else
+- **WHEN** a signed-in user sends a message to the streaming endpoint naming a conversation
+  id that does not exist
+- **THEN** the system responds with not found and the error "Conversation not found.", the
+  same response as for a conversation owned by someone else
 
 ### Requirement: Conversations without an owner are unreachable
 

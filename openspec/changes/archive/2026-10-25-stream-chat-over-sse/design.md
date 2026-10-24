@@ -65,8 +65,9 @@ other `ArgumentException`s, such as a missing user id, from turning into a 400. 
 
 The request body is a record whose `Message` is declared as `string?`, with an optional
 `ConversationId`. With nullable references on, `[ApiController]` treats a non-nullable
-string as required, and would refuse an empty or missing message itself with "The Message
-field is required." before step 2 could run. A malformed body or an invalid id is still
+string as required, and would refuse a missing or null message itself with "The Message
+field is required." before step 2 could run. An empty string gets past that check, but
+the missing case has to say "Message cannot be empty." too. A malformed body or an invalid id is still
 refused by model validation with its own 400.
 
 The 401 and 403 from the policy come from the authorization middleware and have no body,
