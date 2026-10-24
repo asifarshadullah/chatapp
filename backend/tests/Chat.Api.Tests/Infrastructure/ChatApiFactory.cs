@@ -45,16 +45,12 @@ public class ChatApiFactory : WebApplicationFactory<Program>
                 services.Remove(aiDescriptor);
             services.AddSingleton<IAiProvider, FakeAiProvider>();
 
-            // Replace JWT validation with a test handler that always authenticates.
-            // This keeps all 42+ existing tests green after [Authorize] was added to
-            // ChatController and ChatHub.
+            // Authenticate every request as the caller named in the test headers.
             services.AddAuthentication("TestScheme")
                 .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(
                     "TestScheme", _ => { });
 
-            // Replace real PermissionService with a stub that always allows.
-            // Keeps existing Chat.Api.Tests green after [Authorize(Policy="CanChat")]
-            // replaces bare [Authorize] on ChatHub.
+            // Allow every permission; Chat.Identity.Tests covers roles with the real service.
             var permSvcDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IPermissionService));
             if (permSvcDescriptor is not null)
                 services.Remove(permSvcDescriptor);
@@ -84,11 +80,21 @@ public class FakeAiProvider : IAiProvider
 
     public int Calls => Volatile.Read(ref _calls);
 
+    /// <summary>Replaces the fixed reply. Set it only on a test's own factory, not a shared fixture.</summary>
+    public Func<CancellationToken, IAsyncEnumerable<string>>? Script { get; set; }
+
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         IReadOnlyList<ChatMessage> history,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         Interlocked.Increment(ref _calls);
+        if (Script is not null)
+        {
+            await foreach (var token in Script(ct).WithCancellation(ct))
+                yield return token;
+            yield break;
+        }
+
         yield return "Fake";
         yield return " AI";
         yield return " response";

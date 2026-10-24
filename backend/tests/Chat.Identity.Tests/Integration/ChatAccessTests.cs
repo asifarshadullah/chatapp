@@ -71,6 +71,52 @@ public class ChatAccessTests : IClassFixture<AuthApiFactory>
         history!.Messages.Select(m => m.Content).Should().Equal("Hello", "Seeded reply");
     }
 
+    // ── Sending needs a signed-in caller with conversation:create ───────────
+
+    private const string MessagesPath = "/api/chat/messages";
+
+    [Fact]
+    public async Task SendMessage_WithoutCreatePermission_Returns403AndStartsNothing()
+    {
+        var client = _factory.CreateAuthenticatedClientWithRole(Guid.NewGuid(), AuthApiFactory.NoCreateRole);
+        var aiCallsBefore = _factory.Ai.Calls;
+        var createdBefore = _factory.Repository.ConversationsCreated;
+
+        var response = await client.PostAsJsonAsync(MessagesPath, new { message = "Hello" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Content.Headers.ContentType?.MediaType.Should().NotBe("text/event-stream");
+        _factory.Ai.Calls.Should().Be(aiCallsBefore);
+        _factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+    }
+
+    [Fact]
+    public async Task SendMessage_WithCreatePermission_StreamsTheReply()
+    {
+        var client = _factory.CreateAuthenticatedClientWithRole(Guid.NewGuid(), "User");
+
+        var response = await client.PostAsJsonAsync(MessagesPath, new { message = "Hello" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("text/event-stream");
+        (await response.Content.ReadAsStringAsync()).Should().Contain("event: done");
+    }
+
+    [Fact]
+    public async Task SendMessage_WhenNotSignedIn_Returns401AndStartsNothing()
+    {
+        var client = _factory.CreateClient();
+        var aiCallsBefore = _factory.Ai.Calls;
+        var createdBefore = _factory.Repository.ConversationsCreated;
+
+        var response = await client.PostAsJsonAsync(MessagesPath, new { message = "Hello" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Content.Headers.ContentType?.MediaType.Should().NotBe("text/event-stream");
+        _factory.Ai.Calls.Should().Be(aiCallsBefore);
+        _factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+    }
+
     // ── The real-time connection needs conversation:create ──────────────────
 
     // Negotiation is the first request any SignalR client makes, and the hub's policy is

@@ -38,6 +38,10 @@ public class AuthApiFactory : WebApplicationFactory<Program>
     /// <summary>Test-only role that can read conversations but not start them.</summary>
     public const string NoCreateRole = "NoCreate";
 
+    public FakeAiProvider Ai => (FakeAiProvider)Services.GetRequiredService<IAiProvider>();
+
+    public CountingChatRepository Repository => Services.GetRequiredService<CountingChatRepository>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Override JWT settings so the middleware validates tokens we create in tests
@@ -51,7 +55,8 @@ public class AuthApiFactory : WebApplicationFactory<Program>
             // Replace MongoDB chat repository with in-memory
             var repoDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IChatRepository));
             if (repoDescriptor is not null) services.Remove(repoDescriptor);
-            services.AddSingleton<IChatRepository, InMemoryChatRepository>();
+            services.AddSingleton(new CountingChatRepository(new InMemoryChatRepository()));
+            services.AddSingleton<IChatRepository>(sp => sp.GetRequiredService<CountingChatRepository>());
 
             // Replace Ollama AI provider with fake
             var aiDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IAiProvider));
@@ -220,12 +225,38 @@ public class FakeIdentityService : IIdentityService
     }
 }
 
+/// <summary>Counts conversations created, so a test can show a refused send started none.</summary>
+public class CountingChatRepository(IChatRepository inner) : IChatRepository
+{
+    private int _created;
+
+    public int ConversationsCreated => Volatile.Read(ref _created);
+
+    public async Task<Conversation> CreateConversationAsync(Guid userId, CancellationToken ct = default)
+    {
+        var conversation = await inner.CreateConversationAsync(userId, ct);
+        Interlocked.Increment(ref _created);
+        return conversation;
+    }
+
+    public Task<Conversation?> GetConversationAsync(Guid conversationId, Guid userId, CancellationToken ct = default) =>
+        inner.GetConversationAsync(conversationId, userId, ct);
+
+    public Task AddMessageAsync(Guid conversationId, Guid userId, ChatMessage message, CancellationToken ct = default) =>
+        inner.AddMessageAsync(conversationId, userId, message, ct);
+}
+
 public class FakeAiProvider : IAiProvider
 {
+    private int _calls;
+
+    public int Calls => Volatile.Read(ref _calls);
+
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         IReadOnlyList<Chat.Domain.Entities.ChatMessage> history,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
+        Interlocked.Increment(ref _calls);
         yield return "Fake AI response";
         await Task.Yield();
     }
