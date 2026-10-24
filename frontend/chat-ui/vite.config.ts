@@ -14,11 +14,6 @@ export default defineConfig({
         target: 'http://localhost:5064',
         changeOrigin: true,
       },
-      '/chatHub': {
-        target: 'http://localhost:5064',
-        changeOrigin: true,
-        ws: true,
-      },
     },
   },
   test: {

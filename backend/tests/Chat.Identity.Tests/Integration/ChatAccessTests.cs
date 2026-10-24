@@ -117,27 +117,15 @@ public class ChatAccessTests : IClassFixture<AuthApiFactory>
         _factory.Repository.ConversationsCreated.Should().Be(createdBefore);
     }
 
-    // ── The real-time connection needs conversation:create ──────────────────
-
-    // Negotiation is the first request any SignalR client makes, and the hub's policy is
-    // checked there, so a refused negotiation means the connection never opens.
-    [Fact]
-    public async Task OpenChatConnection_WithoutCreatePermission_Returns403()
-    {
-        var client = _factory.CreateAuthenticatedClientWithRole(Guid.NewGuid(), AuthApiFactory.NoCreateRole);
-
-        var response = await client.PostAsync("/chatHub/negotiate?negotiateVersion=1", null);
-
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-    }
+    // ── There is no real-time connection any more ───────────────────────────
 
     [Fact]
-    public async Task OpenChatConnection_WithCreatePermission_Succeeds()
+    public async Task OpenRealTimeChatConnection_IsNotFound()
     {
         var client = _factory.CreateAuthenticatedClientWithRole(Guid.NewGuid(), "User");
 
         var response = await client.PostAsync("/chatHub/negotiate?negotiateVersion=1", null);
 
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 }

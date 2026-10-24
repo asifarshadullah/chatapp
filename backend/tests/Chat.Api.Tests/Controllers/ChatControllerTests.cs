@@ -26,7 +26,7 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
         _client = factory.CreateClient();
     }
 
-    // ── POST /api/chat (removed: messages are sent over the hub) ────────────
+    // ── POST /api/chat (removed: messages are sent to /api/chat/messages) ───
 
     [Fact]
     public async Task PostMessage_OverHttp_IsNotFoundAndReachesNoModel()
@@ -99,7 +99,24 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
-    // Seeds straight into the repository: sending happens over the hub, not this controller.
+    // ── Reading history does not depend on the plan ──────────────────────────
+
+    [Fact]
+    public async Task GetHistory_WhenChatFeatureDisabled_StillReturnsOwnHistory()
+    {
+        await using var factory = new DisabledChatFeatureFactory();
+        var conversation = await factory.Repository.CreateConversationAsync(TestAuthHandler.TestUserId);
+        await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Hello", MessageRole.User));
+        await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Earlier reply", MessageRole.Assistant));
+
+        var response = await factory.CreateClient().GetAsync($"/api/chat/{conversation.Id}/history");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var history = await response.Content.ReadFromJsonAsync<ConversationHistoryDto>();
+        history!.Messages.Select(m => m.Content).Should().Equal("Hello", "Earlier reply");
+    }
+
+    // Seeds straight into the repository, so these tests do not depend on the send path.
     private async Task<Guid> StartConversationAs(Guid user, string message)
     {
         var conversation = await _factory.Repository.CreateConversationAsync(user);

@@ -1,5 +1,4 @@
 using System.Text;
-using Chat.Api.Hubs;
 using Chat.Application.Interfaces;
 using Chat.Application.Services;
 using Chat.Billing.Application.Interfaces;
@@ -27,7 +26,6 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddControllers();
-builder.Services.AddSignalR();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpContextAccessor();
@@ -121,21 +119,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero
         };
-        // SignalR sends the token as ?access_token= on WebSocket/SSE connections
-        // because browsers cannot set custom headers on those transports.
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-                if (!string.IsNullOrEmpty(accessToken) &&
-                    context.HttpContext.Request.Path.StartsWithSegments("/chatHub"))
-                {
-                    context.Token = accessToken;
-                }
-                return Task.CompletedTask;
-            }
-        };
     })
     .AddCookie("ExternalCookie") // temporary cookie for the Google OAuth round-trip
     .AddGoogle(options =>
@@ -162,7 +145,7 @@ builder.Services.AddCors(options =>
         policy.WithOrigins("http://localhost:5173")
               .AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials(); // Required for SignalR
+              .AllowCredentials(); // Lets the refresh cookie travel on cross-origin requests
     });
 });
 
@@ -181,7 +164,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<ChatHub>("/chatHub");
 
 // Seed default roles into MongoDB if the collection is empty
 using (var scope = app.Services.CreateScope())

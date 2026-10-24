@@ -119,8 +119,7 @@ describe('concurrent renewal', () => {
     refreshRefused(401)
     await authService.refresh().catch(() => {})
 
-    // The same failure mode fixed in signalRService: a caller arriving after a failure must
-    // not be handed the abandoned rejection.
+    // A caller arriving after a failure must not be handed the abandoned rejection.
     signedIn()
     const fetchMock = refreshResponds('second-attempt')
     const token = await authService.refresh()
