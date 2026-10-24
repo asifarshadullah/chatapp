@@ -1,7 +1,5 @@
 using Chat.Application.DTOs;
-using Chat.Application.Exceptions;
 using Chat.Application.Interfaces;
-using Chat.Domain.Entities;
 using Chat.Identity.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Chat.Api.Controllers;
 
 /// <summary>
-/// Handles chat message requests and conversation history.
+/// Serves conversation history. Messages are sent over the chat hub, not this controller.
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -28,46 +26,6 @@ public class ChatController : ControllerBase
     {
         _chatService = chatService;
         _currentUser = currentUser;
-    }
-
-    /// <summary>
-    /// Sends a chat message. Creates a new conversation when ConversationId is omitted.
-    /// </summary>
-    /// <param name="request">The chat request. Include ConversationId to continue an existing conversation.</param>
-    /// <param name="cancellationToken">Cancellation token for the operation.</param>
-    /// <returns>Echo response with ConversationId.</returns>
-    /// <response code="200">Returns the echo response with ConversationId.</response>
-    /// <response code="400">If the message is null, empty, or exceeds 5000 characters.</response>
-    /// <response code="404">If ConversationId names a conversation that does not exist or is not the caller's.</response>
-    [HttpPost]
-    [ProducesResponseType(typeof(ChatResponseDto), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ChatResponseDto>> SendMessage(
-        [FromBody] ChatRequestDto request,
-        CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(request.Message))
-            return BadRequest("Message cannot be null, empty, or whitespace.");
-
-        if (request.Message.Length > ChatMessage.MaxContentLength)
-            return BadRequest($"Message cannot exceed {ChatMessage.MaxContentLength} characters.");
-
-        try
-        {
-            var response = await _chatService.SendMessageAsync(
-                request.Message,
-                _currentUser.UserId,
-                request.ConversationId,
-                cancellationToken);
-
-            return Ok(response);
-        }
-        catch (ConversationNotFoundException)
-        {
-            // Same answer whether the conversation is missing or someone else's.
-            return NotFound();
-        }
     }
 
     /// <summary>

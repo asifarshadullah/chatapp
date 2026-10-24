@@ -8,12 +8,6 @@ namespace Chat.Application.Interfaces;
 public interface IChatService
 {
     /// <summary>
-    /// Processes a user message and returns the full AI response as a single DTO.
-    /// Used by the REST controller. Creates a new conversation when conversationId is null.
-    /// </summary>
-    Task<ChatResponseDto> SendMessageAsync(string content, Guid userId, Guid? conversationId = null, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Saves the user message, streams AI response tokens, then saves the complete assistant message.
     /// Yields (ConversationId, Token) pairs — ConversationId is populated on every item so the hub
     /// can forward it to the client on the first yield before streaming begins.

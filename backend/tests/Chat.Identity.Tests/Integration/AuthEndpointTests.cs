@@ -56,11 +56,9 @@ public class AuthEndpointTests : IClassFixture<AuthApiFactory>
     // ── Phase 3 Cycle 3.1 ────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Unauthenticated_SendMessage_Returns401()
+    public async Task Unauthenticated_GetHistory_Returns401()
     {
-        var request = new { Message = "Hello" };
-
-        var response = await _client.PostAsJsonAsync("/api/chat", request);
+        var response = await _client.GetAsync($"/api/chat/{Guid.NewGuid()}/history");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }

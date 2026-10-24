@@ -5,19 +5,6 @@ export interface ChatMessage {
   timestamp: string
 }
 
-export interface ChatRequest {
-  message: string
-  conversationId?: string
-}
-
-export interface ChatResponse {
-  id: string
-  message: string
-  role: string
-  timestamp: string
-  conversationId: string
-}
-
 export interface ChatMessageRecord {
   id: string
   content: string
