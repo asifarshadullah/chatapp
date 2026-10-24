@@ -4,8 +4,7 @@
  * ended session as "server down" sends users to debug their infrastructure when all they
  * need to do is sign in again.
  *
- * Defined in its own module because both authService and signalRService raise it, and
- * signalRService already depends on authService.
+ * Its own module so the chat code can import it without a cycle through authService.
  */
 export class SessionExpiredError extends Error {
   constructor() {
