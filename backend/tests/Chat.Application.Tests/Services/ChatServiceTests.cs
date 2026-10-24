@@ -29,81 +29,6 @@ public class ChatServiceTests
         _sut = new ChatService(_repository, _aiProvider);
     }
 
-    // ── SendMessageAsync ────────────────────────────────────────────────────
-
-    [Fact]
-    public async Task SendMessageAsync_WithValidContent_ReturnsAiResponse()
-    {
-        var result = await _sut.SendMessageAsync("Hello", UserId);
-
-        result.Should().NotBeNull();
-        result.Id.Should().NotBeEmpty();
-        result.Message.Should().Be("AI response");
-        result.Role.Should().Be("assistant");
-        result.Timestamp.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_WithNullContent_ThrowsArgumentException()
-    {
-        var act = () => _sut.SendMessageAsync(null!, UserId);
-
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_WithEmptyContent_ThrowsArgumentException()
-    {
-        var act = () => _sut.SendMessageAsync("", UserId);
-
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_WithWhitespaceContent_ThrowsArgumentException()
-    {
-        var act = () => _sut.SendMessageAsync("   ", UserId);
-
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_WithNoConversationId_CreatesNewConversation()
-    {
-        var result = await _sut.SendMessageAsync("Hello", UserId);
-
-        result.ConversationId.Should().NotBeEmpty();
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_WithExistingConversationId_AppendsToConversation()
-    {
-        var first = await _sut.SendMessageAsync("Hello", UserId);
-        var second = await _sut.SendMessageAsync("World", UserId, first.ConversationId);
-
-        second.ConversationId.Should().Be(first.ConversationId);
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_StoresBothUserAndAssistantMessages()
-    {
-        var result = await _sut.SendMessageAsync("Hello", UserId);
-
-        var history = await _sut.GetHistoryAsync(result.ConversationId, UserId);
-        history.Should().NotBeNull();
-        history!.Messages.Should().HaveCount(2);
-        history.Messages[0].Role.Should().Be("user");
-        history.Messages[1].Role.Should().Be("assistant");
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_ReturnsConversationIdInResponse()
-    {
-        var result = await _sut.SendMessageAsync("Hi", UserId);
-
-        result.ConversationId.Should().NotBeEmpty();
-    }
-
     // ── StreamResponseAsync ─────────────────────────────────────────────────
 
     // Cycle 2.2
@@ -186,17 +111,50 @@ public class ChatServiceTests
         conversationId.Should().NotBeEmpty();
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task StreamResponseAsync_WithBlankContent_ThrowsBeforeCreatingOrCallingAi(string? content)
+    {
+        // The iterator is lazy: nothing runs until the first MoveNextAsync, so drain it.
+        var act = async () =>
+        {
+            await foreach (var _ in _sut.StreamResponseAsync(content!, UserId)) { }
+        };
+
+        await act.Should().ThrowAsync<ArgumentException>();
+        _repository.ConversationCount.Should().Be(0);
+        _aiProvider.ReceivedHistory.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_WithExistingConversationId_AppendsToThatConversation()
+    {
+        var first = await StartConversationAsync("Hello", UserId);
+
+        Guid secondId = Guid.Empty;
+        await foreach (var (convId, _) in _sut.StreamResponseAsync("World", UserId, first))
+            secondId = convId;
+
+        secondId.Should().Be(first);
+        _repository.ConversationCount.Should().Be(1);
+        var history = await _sut.GetHistoryAsync(first, UserId);
+        history!.Messages.Select(m => (m.Role, m.Content)).Should().Equal(
+            ("user", "Hello"), ("assistant", "AI response"), ("user", "World"), ("assistant", "AI response"));
+    }
+
     // ── GetHistoryAsync ─────────────────────────────────────────────────────
 
     [Fact]
     public async Task GetHistoryAsync_WithValidId_ReturnsHistory()
     {
-        var sent = await _sut.SendMessageAsync("Hello", UserId);
+        var sent = await StartConversationAsync("Hello", UserId);
 
-        var history = await _sut.GetHistoryAsync(sent.ConversationId, UserId);
+        var history = await _sut.GetHistoryAsync(sent, UserId);
 
         history.Should().NotBeNull();
-        history!.ConversationId.Should().Be(sent.ConversationId);
+        history!.ConversationId.Should().Be(sent);
     }
 
     [Fact]
@@ -210,27 +168,14 @@ public class ChatServiceTests
     // ── Ownership ───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task SendMessageAsync_IntoAnotherUsersConversation_ThrowsWithoutCallingAiOrCreating()
-    {
-        var owners = await _sut.SendMessageAsync("Mine", UserId);
-        _aiProvider.ReceivedHistory = null;
-
-        var act = () => _sut.SendMessageAsync("Intruder", OtherUserId, owners.ConversationId);
-
-        await act.Should().ThrowAsync<ConversationNotFoundException>();
-        _aiProvider.ReceivedHistory.Should().BeNull();
-        _repository.ConversationCount.Should().Be(1);
-    }
-
-    [Fact]
     public async Task StreamResponseAsync_IntoAnotherUsersConversation_ThrowsWithoutCallingAiOrCreating()
     {
-        var owners = await _sut.SendMessageAsync("Mine", UserId);
+        var owners = await StartConversationAsync("Mine", UserId);
         _aiProvider.ReceivedHistory = null;
 
         var act = async () =>
         {
-            await foreach (var _ in _sut.StreamResponseAsync("Intruder", OtherUserId, owners.ConversationId)) { }
+            await foreach (var _ in _sut.StreamResponseAsync("Intruder", OtherUserId, owners)) { }
         };
 
         await act.Should().ThrowAsync<ConversationNotFoundException>();
@@ -241,20 +186,11 @@ public class ChatServiceTests
     [Fact]
     public async Task GetHistoryAsync_ForAnotherUsersConversation_ReturnsNull()
     {
-        var owners = await _sut.SendMessageAsync("Mine", UserId);
+        var owners = await StartConversationAsync("Mine", UserId);
 
-        var history = await _sut.GetHistoryAsync(owners.ConversationId, OtherUserId);
+        var history = await _sut.GetHistoryAsync(owners, OtherUserId);
 
         history.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task SendMessageAsync_WithEmptyUserId_ThrowsArgumentException()
-    {
-        var act = () => _sut.SendMessageAsync("Hello", Guid.Empty);
-
-        await act.Should().ThrowAsync<ArgumentException>();
-        _repository.ConversationCount.Should().Be(0);
     }
 
     [Fact]
@@ -270,23 +206,13 @@ public class ChatServiceTests
     }
 
     [Fact]
-    public async Task SendMessageAsync_WithEmptyUserIdAndExistingConversation_ThrowsArgumentException()
-    {
-        var owners = await _sut.SendMessageAsync("Mine", UserId);
-
-        var act = () => _sut.SendMessageAsync("Hello", Guid.Empty, owners.ConversationId);
-
-        await act.Should().ThrowAsync<ArgumentException>();
-    }
-
-    [Fact]
     public async Task StreamResponseAsync_WithEmptyUserIdAndExistingConversation_ThrowsArgumentException()
     {
-        var owners = await _sut.SendMessageAsync("Mine", UserId);
+        var owners = await StartConversationAsync("Mine", UserId);
 
         var act = async () =>
         {
-            await foreach (var _ in _sut.StreamResponseAsync("Hello", Guid.Empty, owners.ConversationId)) { }
+            await foreach (var _ in _sut.StreamResponseAsync("Hello", Guid.Empty, owners)) { }
         };
 
         await act.Should().ThrowAsync<ArgumentException>();
@@ -298,6 +224,14 @@ public class ChatServiceTests
         var act = () => _sut.GetHistoryAsync(Guid.NewGuid(), Guid.Empty);
 
         await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    private async Task<Guid> StartConversationAsync(string content, Guid userId)
+    {
+        Guid conversationId = Guid.Empty;
+        await foreach (var (convId, _) in _sut.StreamResponseAsync(content, userId))
+            conversationId = convId;
+        return conversationId;
     }
 
     // ── test doubles ────────────────────────────────────────────────────────
