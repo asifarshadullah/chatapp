@@ -8,6 +8,13 @@
   approval before running `git commit` unless told otherwise.
 - One logical change per commit. Unrelated cleanups — lockfile churn,
   formatting, stray renames — get their own commit or get reverted.
+- Name a branch for an issue `<type>/<issue>-<slug>`, for example
+  `fix/15-check-chat-endpoint-permissions`.
+
+## Code comments
+
+Prefer names that make a comment unnecessary. When a comment is still needed,
+keep it to one or two lines and say why, not what.
 
 ## Commit messages
 
@@ -32,11 +39,11 @@ Plain prose only: no headings, no markdown, no bullet lists, and no restating
 the diff. Test counts, pass rates and verification notes belong in the pull
 request or the conversation, not in permanent history.
 
-When a commit belongs to an issue, reference it with a `Refs #12` line in the
-body, so every commit says what it was for. Use `Refs`, never `Closes`, in a
-commit message: a commit that lands on `main` saying `Closes #12` closes the
-issue outright and skips the `qa` step below. The pull request names the issue
-too (see Issues).
+When a commit belongs to an issue, end its body with a `Closes #12` line, so
+every commit names its issue. The pull request body must name the same issue
+(see Issues): the QA handoff workflow reads only the pull request body, and
+reopens into `qa` the issues it names. A commit that says `Closes` an issue the
+pull request does not name would close it for good and skip QA.
 
 No trailers. Do not append `Co-Authored-By:`, `Generated with ...`, or any
 similar attribution footer to commit messages or pull request bodies.
