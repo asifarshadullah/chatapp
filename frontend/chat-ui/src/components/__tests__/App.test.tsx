@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../../App'
 import { authService } from '../../services/authService'
-import { signalRService, SessionExpiredError } from '../../services/signalRService'
+import { SessionExpiredError } from '../../services/sessionErrors'
 
 vi.mock('../../services/authService', () => ({
   authService: {
@@ -20,18 +20,6 @@ vi.mock('../../services/authService', () => ({
   },
 }))
 
-vi.mock('../../services/signalRService', async (importOriginal) => ({
-  // Keep the real error class and message constants: the component compares
-  // against them, so stubbing them out would make these tests pass on
-  // mismatched strings.
-  ...(await importOriginal<typeof import('../../services/signalRService')>()),
-  signalRService: {
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-    sendMessage: vi.fn(),
-  },
-}))
-
 vi.mock('../../services/billingService', () => ({
   billingService: {
     getPlans: vi.fn().mockResolvedValue([]),
@@ -43,8 +31,7 @@ vi.mock('../../services/billingService', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(signalRService.start).mockResolvedValue(undefined)
-  vi.mocked(signalRService.stop).mockResolvedValue(undefined)
+  vi.mocked(authService.getValidToken).mockResolvedValue('token')
   vi.mocked(authService.hasSession).mockReturnValue(false)
   vi.mocked(authService.restoreSession).mockResolvedValue(false)
 })
@@ -133,7 +120,7 @@ it('transitions to ChatWindow after successful login', async () => {
 
 it('returns to the sign in form when the session has expired', async () => {
   vi.mocked(authService.isAuthenticated).mockReturnValue(true)
-  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+  vi.mocked(authService.getValidToken).mockRejectedValue(new SessionExpiredError())
 
   render(<App />)
 
@@ -141,12 +128,11 @@ it('returns to the sign in form when the session has expired', async () => {
   // page showing a connection error they cannot act on.
   expect(await screen.findByLabelText(/password/i)).toBeInTheDocument()
   expect(authService.clearLocal).toHaveBeenCalled()
-  expect(signalRService.stop).toHaveBeenCalled()
 })
 
 it('does not sign out on the server when the session ended by itself', async () => {
   vi.mocked(authService.isAuthenticated).mockReturnValue(true)
-  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+  vi.mocked(authService.getValidToken).mockRejectedValue(new SessionExpiredError())
 
   render(<App />)
   await screen.findByLabelText(/password/i)
@@ -173,7 +159,7 @@ it('still signs out on the server when the user chooses to', async () => {
 
 it('leaves no access token behind when a session is abandoned', async () => {
   vi.mocked(authService.isAuthenticated).mockReturnValue(true)
-  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
+  vi.mocked(authService.getValidToken).mockRejectedValue(new SessionExpiredError())
 
   render(<App />)
   await screen.findByLabelText(/password/i)
@@ -181,17 +167,6 @@ it('leaves no access token behind when a session is abandoned', async () => {
   // Not signing out on the server must not mean holding on locally: the
   // user-visible outcome is unchanged, which is what makes this safe to ship.
   expect(authService.clearLocal).toHaveBeenCalled()
-})
-
-it('stops the hub when a session is abandoned', async () => {
-  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
-  vi.mocked(signalRService.start).mockRejectedValue(new SessionExpiredError())
-
-  render(<App />)
-  await screen.findByLabelText(/password/i)
-
-  // A live hub against a dead session reconnects and raises the same error again.
-  expect(signalRService.stop).toHaveBeenCalled()
 })
 
 // ── Restoring a lapsed session on load ───────────────────────────────────────

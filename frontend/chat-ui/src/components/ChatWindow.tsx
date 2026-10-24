@@ -1,19 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { Box, Button, CircularProgress, Typography, Alert } from '@mui/material'
 import type { ChatMessage } from '../types/chat'
-import {
-  signalRService,
-  SessionExpiredError,
-  SESSION_EXPIRED_MESSAGE,
-  CONNECT_FAILED_MESSAGE,
-} from '../services/signalRService'
+import { streamMessage } from '../services/chatApi'
+import { authService } from '../services/authService'
+import { SessionExpiredError, SESSION_EXPIRED_MESSAGE } from '../services/sessionErrors'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
 
 interface ChatWindowProps {
   onLogout?: () => void
   onManageBilling?: () => void
-  /** Called when the connection is refused because the session ended. */
+  /** Called when the session turns out to have ended. */
   onSessionExpired?: () => void
 }
 
@@ -31,27 +28,23 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
     onSessionExpiredRef.current = onSessionExpired
   }, [onSessionExpired])
 
+  // Aborted on unmount, which is also how signing out stops a reply.
+  const replyInFlightRef = useRef<AbortController | null>(null)
+
+  // Notice an ended session on opening; other failures are left for the first send.
   useEffect(() => {
     let cancelled = false
-    signalRService
-      .start()
-      .then(() => { if (!cancelled) setError(null) })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        if (err instanceof SessionExpiredError) {
-          setError(SESSION_EXPIRED_MESSAGE)
-          onSessionExpiredRef.current?.()
-          return
-        }
-        setError(CONNECT_FAILED_MESSAGE)
-      })
-    // No stop() here: the connection is a shared singleton that outlives this
-    // component, and tearing it down on unmount aborts the connect that
-    // StrictMode's immediate remount is already awaiting. Logout disconnects.
+    authService.getValidToken().catch((err: unknown) => {
+      if (cancelled || !(err instanceof SessionExpiredError)) return
+      setError(SESSION_EXPIRED_MESSAGE)
+      onSessionExpiredRef.current?.()
+    })
     return () => {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => () => replyInFlightRef.current?.abort(), [])
 
   async function handleSend(text: string) {
     const userMessage: ChatMessage = {
@@ -68,7 +61,10 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
     streamingIdRef.current = streamingId
     streamingContentRef.current = ''
 
-    await signalRService.sendMessage(text, conversationId, {
+    const reply = new AbortController()
+    replyInFlightRef.current = reply
+
+    await streamMessage(text, conversationId, {
       onConversationId: (id) => setConversationId(id),
       onWord: (word) => {
         streamingContentRef.current += word
@@ -104,7 +100,7 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
         streamingIdRef.current = null
         streamingContentRef.current = ''
       },
-    })
+    }, reply.signal)
   }
 
   const headerButtons = (onLogout || onManageBilling) && (
