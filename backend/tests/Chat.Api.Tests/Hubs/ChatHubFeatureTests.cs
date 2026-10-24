@@ -20,7 +20,7 @@ public class ChatHubFeatureTests
     // ── Cycle 4.1 — feature disabled → HubException ──────────────────────────
 
     [Fact]
-    public async Task SendMessage_WhenChatFeatureDisabled_ThrowsHubException()
+    public async Task SendMessage_WhenChatFeatureDisabled_FailsWithPlanErrorAndReachesNoModel()
     {
         await using var factory = new DisabledChatFeatureFactory();
         var connection = new HubConnectionBuilder()
@@ -38,8 +38,9 @@ public class ChatHubFeatureTests
             { /* drain */ }
         };
 
-        await act.Should().ThrowAsync<Exception>()
-            .WithMessage("*plan*");
+        var error = (await act.Should().ThrowAsync<Exception>()).Which;
+        error.Message.Should().Contain("Chat is not available on your current plan.");
+        factory.Ai.Calls.Should().Be(0);
 
         await connection.StopAsync();
     }
