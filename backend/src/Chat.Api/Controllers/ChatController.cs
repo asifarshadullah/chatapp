@@ -35,9 +35,12 @@ public class ChatController : ControllerBase
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>All messages in chronological order.</returns>
     /// <response code="200">Returns the conversation history.</response>
+    /// <response code="403">If the caller's role does not grant conversation:read, whatever the id.</response>
     /// <response code="404">If the conversation does not exist or is not the caller's.</response>
     [HttpGet("{conversationId:guid}/history")]
+    [Authorize(Policy = "CanReadConversation")]
     [ProducesResponseType(typeof(ConversationHistoryDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ConversationHistoryDto>> GetHistory(
         Guid conversationId,

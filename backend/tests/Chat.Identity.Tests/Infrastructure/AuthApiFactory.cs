@@ -6,6 +6,8 @@ using System.Text;
 using Chat.Application.Interfaces;
 using Chat.Billing.Application.Interfaces;
 using Chat.Billing.Domain.Entities;
+using Chat.Domain.Entities;
+using Chat.Domain.Enums;
 using Chat.Identity.Application.DTOs;
 using Chat.Identity.Application.Interfaces;
 using Chat.Identity.Domain.Entities;
@@ -29,6 +31,12 @@ public class AuthApiFactory : WebApplicationFactory<Program>
     public const string TestIssuer = "chatapp-test";
     public const string TestAudience = "chatapp-test";
     public static readonly Guid TestUserId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+
+    /// <summary>Test-only role that can start conversations but not read them.</summary>
+    public const string NoReadRole = "NoRead";
+
+    /// <summary>Test-only role that can read conversations but not start them.</summary>
+    public const string NoCreateRole = "NoCreate";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -63,6 +71,9 @@ public class AuthApiFactory : WebApplicationFactory<Program>
             fakeRoleStore.Roles.Add(new RoleInfo("User",     ["conversation:create", "conversation:read"]));
             fakeRoleStore.Roles.Add(new RoleInfo("OrgAdmin", ["conversation:create", "conversation:read", "conversation:share", "user:invite"]));
             fakeRoleStore.Roles.Add(new RoleInfo("Admin",    ["*"]));
+            // Test-only roles, each missing one chat permission, so permission refusals can be seen.
+            fakeRoleStore.Roles.Add(new RoleInfo(NoReadRole,   ["conversation:create"]));
+            fakeRoleStore.Roles.Add(new RoleInfo(NoCreateRole, ["conversation:read"]));
             services.AddSingleton<IRoleStore>(fakeRoleStore);
 
             // Replace MongoDB-backed billing repos with stubs (no MongoDB needed for identity tests)
@@ -79,6 +90,19 @@ public class AuthApiFactory : WebApplicationFactory<Program>
             if (featureDescriptor is not null) services.Remove(featureDescriptor);
             services.AddSingleton<IPlanFeatureService, AlwaysEnabledFeatureService>();
         });
+    }
+
+    /// <summary>
+    /// Stores a conversation owned by the given user, holding the message and a reply, so tests
+    /// can read history without sending through the hub.
+    /// </summary>
+    public async Task<Guid> SeedConversationAsync(Guid ownerId, string message)
+    {
+        var repository = Services.GetRequiredService<IChatRepository>();
+        var conversation = await repository.CreateConversationAsync(ownerId);
+        await repository.AddMessageAsync(conversation.Id, ownerId, new ChatMessage(message, MessageRole.User));
+        await repository.AddMessageAsync(conversation.Id, ownerId, new ChatMessage("Seeded reply", MessageRole.Assistant));
+        return conversation.Id;
     }
 
     /// <summary>Creates an HttpClient that sends a valid JWT for the test user (role: User).</summary>

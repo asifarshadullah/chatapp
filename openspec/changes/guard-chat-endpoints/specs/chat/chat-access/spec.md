@@ -59,6 +59,12 @@ name. Reading history SHALL NOT depend on the caller's plan.
 - **THEN** the system responds with forbidden, the same response as for their own
   conversation
 
+#### Scenario: Caller whose plan does not include chat reads their own history
+
+- **WHEN** a user whose role grants `conversation:read` but whose plan does not include
+  chat requests the history of a conversation they own
+- **THEN** the system returns every message in it, in chronological order
+
 #### Scenario: A role that grants every permission can read
 
 - **WHEN** a user whose role grants every permission requests the history of a
