@@ -7,10 +7,10 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![MongoDB 7](https://img.shields.io/badge/MongoDB-7-47A248?logo=mongodb&logoColor=white)
 ![SSE](https://img.shields.io/badge/Server--Sent_Events-Streaming-512BD4)
-![Tests](https://img.shields.io/badge/tests-119%20passing-brightgreen)
+[![CI](https://github.com/asifarshadullah/chatapp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/asifarshadullah/chatapp/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-![ChatApp UI](assets/chat-ui.png)
+![ChatApp chat](docs/images/chat.png)
 
 ---
 
@@ -23,7 +23,8 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 - **Authorization** — role-based permission policies (`CanChat`, `AdminOnly`, etc.) with 5-minute cached role lookups
 - **Billing** — Stripe Checkout, webhook-driven subscription lifecycle, plan-based feature gating
 - **Persistence** — MongoDB 7 via Docker Compose with typed document mappings
-- **Testing** — 119 automated tests across 3 levels (unit, integration, E2E) following strict TDD
+- **Testing** — automated tests across 3 levels (unit, integration, E2E) following strict TDD
+- **Deployment** — one Docker image serves the UI and the API from one origin; deploys are started by hand from GitHub Actions, only after the tests pass
 
 ---
 
@@ -138,7 +139,8 @@ frontend/chat-ui/                     # React 19 + Vite + TypeScript + MUI
 e2e/playwright/                       # Playwright E2E tests
 docs/architecture/                    # Trade-off write-ups and design retrospectives
 openspec/                             # Specs and change proposals
-docker-compose.yml                    # MongoDB 7 + Mongo Express
+docker-compose.yml                    # MongoDB 7 + Mongo Express, and the app under the `app` profile
+Dockerfile                            # Production image: built UI + API on one origin
 ```
 
 ---
@@ -172,6 +174,23 @@ npm run dev
 ```
 
 Open http://localhost:5173. Register with email + password, then chat.
+
+### Run the production image locally
+
+The image that is deployed also runs on your machine, against the local MongoDB and your Ollama:
+
+```bash
+ollama pull gemma3:4b
+docker compose --profile app up --build
+```
+
+Open http://localhost:8080. Use Chrome or Firefox: the app runs in Production mode, so its refresh cookie is `Secure`, and Safari may not keep a `Secure` cookie on plain `http://localhost`. On Linux, start Ollama with `OLLAMA_HOST=0.0.0.0` so the container can reach it.
+
+![Sign-up form](docs/images/sign-up.png)
+
+### Deploying
+
+Deploys are started by hand from **Actions → Deploy** on a branch you pick, and only run after the CI checks pass on it. See [docs/deployment.md](docs/deployment.md) for how it works and the one-time Render and MongoDB Atlas setup.
 
 <details>
 <summary><b>Optional: enable Google OAuth login</b></summary>
@@ -229,8 +248,6 @@ npm test
 cd e2e/playwright
 npx playwright test
 ```
-
-**Test counts:** 58 backend + 61 frontend = **119 total**, all passing.
 
 > The MongoDB integration tests require Docker Compose to be running. All other tests run without external dependencies (API tests use an in-memory `IChatRepository`, a fake `IAiProvider`, and a test auth handler — see `ChatApiFactory` and `AuthApiFactory`).
 
