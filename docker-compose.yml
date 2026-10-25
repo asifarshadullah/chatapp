@@ -23,5 +23,26 @@ services:
     depends_on:
       - mongodb
 
+  # The deployed image, run against the local MongoDB and the host's Ollama.
+  # Only with `docker compose --profile app up --build`, so the tests' `up -d` stays as it was.
+  app:
+    profiles: [app]
+    build: .
+    container_name: chatapp-app
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      MongoDB__ConnectionString: mongodb://chatapp:chatapp_dev@mongodb:27017/?authSource=admin
+      MongoDB__DatabaseName: chatapp
+      # Local only. A deployed app gets its own secret from the host.
+      Jwt__Secret: local-compose-only-secret-never-use-when-deployed-0123456789
+      Ollama__BaseUrl: http://host.docker.internal:11434
+      Ollama__Model: gemma3:4b
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mongodb
+
 volumes:
   mongodb_data:

@@ -1,0 +1,14 @@
+**/bin
+**/obj
+**/node_modules
+**/dist
+.git
+.github
+.claude
+.agents
+.vscode
+e2e
+docs
+openspec
+backend/tests
+**/*.md
