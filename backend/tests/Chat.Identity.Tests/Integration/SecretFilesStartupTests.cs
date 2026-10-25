@@ -49,6 +49,7 @@ public class SecretFilesStartupTests : IDisposable
         using var app = Start(_secrets);
 
         app.Services.GetRequiredService<IModelCatalog>().Offered.Select(o => o.Id).Should().Equal("groq");
+        app.Services.GetRequiredService<IConfiguration>()["Ai:Models:groq:ApiKey"].Should().Be("gsk_from_a_file");
     }
 
     [Fact]
