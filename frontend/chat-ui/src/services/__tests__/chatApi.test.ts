@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   streamMessage,
   getHistory,
+  getModels,
+  MODELS_LOAD_FAILED_MESSAGE,
   SEND_FAILED_MESSAGE,
   REPLY_INTERRUPTED_MESSAGE,
   CONVERSATION_NOT_FOUND_MESSAGE,
@@ -288,5 +290,62 @@ describe('getHistory', () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/chat/conv-1/history')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer stored-token')
+  })
+})
+
+describe('getModels', () => {
+  it('returns the offered options and the default', async () => {
+    signedIn()
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({
+      defaultModel: 'local',
+      models: [{ id: 'local', name: 'Local · gemma3:4b' }, { id: 'groq', name: 'Groq · gpt-oss-120b' }],
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await getModels()
+
+    expect(result).toEqual({
+      defaultModel: 'local',
+      models: [{ id: 'local', name: 'Local · gemma3:4b' }, { id: 'groq', name: 'Groq · gpt-oss-120b' }],
+    })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/chat/models')
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer stored-token')
+  })
+
+  it('reports a failed response', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(problem(500)))
+
+    expect(await getModels()).toEqual({ error: MODELS_LOAD_FAILED_MESSAGE })
+  })
+
+  it('reports a network failure', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    expect(await getModels()).toEqual({ error: MODELS_LOAD_FAILED_MESSAGE })
+  })
+})
+
+describe('streamMessage and the model', () => {
+  it('names the model when given one', async () => {
+    signedIn()
+    const fetchMock = vi.fn().mockResolvedValue(eventStream(...FULL_REPLY))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await streamMessage('Hello', undefined, recorder().callbacks, undefined, 'groq')
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ message: 'Hello', conversationId: null, model: 'groq' })
+  })
+
+  it('names no model when given none', async () => {
+    signedIn()
+    const fetchMock = vi.fn().mockResolvedValue(eventStream(...FULL_REPLY))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await streamMessage('Hello', undefined, recorder().callbacks)
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('model')
   })
 })

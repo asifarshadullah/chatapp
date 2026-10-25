@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, Button, CircularProgress, Typography, Alert } from '@mui/material'
+import { Box, Button, CircularProgress, IconButton, Typography, Alert } from '@mui/material'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import type { ChatMessage } from '../types/chat'
-import { streamMessage, getHistory, CONVERSATION_NOT_FOUND_MESSAGE } from '../services/chatApi'
+import { streamMessage, getHistory, getModels, CONVERSATION_NOT_FOUND_MESSAGE } from '../services/chatApi'
+import type { ModelsResult } from '../services/chatApi'
+import { modelInUse, savedModel, saveModel } from '../services/modelChoice'
 import {
   conversationInUrl,
   isConversationId,
@@ -12,6 +15,7 @@ import { authService } from '../services/authService'
 import { SessionExpiredError, SESSION_EXPIRED_MESSAGE } from '../services/sessionErrors'
 import { MessageList } from './MessageList'
 import { ChatInput } from './ChatInput'
+import { SettingsDialog } from './SettingsDialog'
 
 interface ChatWindowProps {
   onLogout?: () => void
@@ -32,6 +36,10 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
   )
   const [conversationId, setConversationId] = useState<string | undefined>()
   const [historyState, setHistoryState] = useState<HistoryState>(requestedIsValid ? 'loading' : 'none')
+  const [models, setModels] = useState<ModelsResult | null>(null)
+  // Until the list arrives, the saved choice is used unchecked; the server refuses a stale one.
+  const [model, setModel] = useState<string | null>(savedModel)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const streamingIdRef = useRef<string | null>(null)
   const streamingContentRef = useRef('')
   // Held in a ref so the connect effect stays mount-only: re-running it on a
@@ -58,6 +66,24 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
   }, [])
 
   useEffect(() => () => replyInFlightRef.current?.abort(), [])
+
+  useEffect(() => {
+    let cancelled = false
+    getModels().then((result) => {
+      if (cancelled) return
+      setModels(result)
+      setModel('error' in result ? null : modelInUse(result))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  function applyModel(id: string) {
+    setModel(id)
+    saveModel(id)
+    setSettingsOpen(false)
+  }
 
   useEffect(() => {
     if (requested === null) return
@@ -153,14 +179,17 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
         streamingIdRef.current = null
         streamingContentRef.current = ''
       },
-    }, reply.signal)
+    }, reply.signal, model ?? undefined)
   }
 
   const inputBlocked = isStreaming || historyState !== 'none'
   const canStartNewChat = messages.length > 0 || error !== null
 
-  const headerButtons = (canStartNewChat || onLogout || onManageBilling) && (
-    <Box sx={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 1 }}>
+  const headerButtons = (
+    <Box sx={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 1, alignItems: 'center' }}>
+      <IconButton size="small" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+        <SettingsOutlinedIcon fontSize="small" />
+      </IconButton>
       {canStartNewChat && (
         <Button size="small" variant="outlined" onClick={startNewChat} disabled={isStreaming}>
           New chat
@@ -176,6 +205,13 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
           Logout
         </Button>
       )}
+      <SettingsDialog
+        open={settingsOpen}
+        models={models}
+        model={model}
+        onSave={applyModel}
+        onCancel={() => setSettingsOpen(false)}
+      />
     </Box>
   )
 

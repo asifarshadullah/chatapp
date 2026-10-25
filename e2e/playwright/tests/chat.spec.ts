@@ -165,4 +165,25 @@ test.describe('Chat', () => {
     );
     await expect(chat.getAssistantMessages().nth(1)).toHaveText(/\S/);
   });
+
+  test('the Settings dialog shows the local model, remembers it, and it answers', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+
+    const model = async () => {
+      await page.getByRole('button', { name: 'Settings' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Settings' });
+      await expect(dialog.getByRole('combobox', { name: 'Model' })).toHaveText('Local · gemma3:4b');
+      return dialog;
+    };
+
+    await (await model()).getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+    await page.reload();
+    await (await model()).getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('dialog')).toBeHidden();
+
+    await chat.sendAndAwaitReply('Reply with the single word: ready', 1);
+    await expect(chat.getAssistantMessages().first()).toHaveText(/\S/);
+  });
 });
