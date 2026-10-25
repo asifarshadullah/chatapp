@@ -412,6 +412,18 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
     }
 
     [Fact]
+    public async Task PostMessage_WhenTheModelProducesNoText_IsAnOrdinaryFailure()
+    {
+        // A reasoning model can spend its whole reply budget thinking and send no content.
+        await using var factory = new ChatApiFactory();
+        factory.Ai.Script = Tokens();
+
+        using var response = await EventStream.PostMessageAsync(factory.CreateClient(), new { message = "Hi" });
+
+        await ShouldBeRefused(response, HttpStatusCode.BadGateway, "The reply could not be completed.");
+    }
+
+    [Fact]
     public async Task PostMessage_WhenTheModelServiceIsAtItsRateLimit_AnswersServiceUnavailable()
     {
         await using var factory = new ChatApiFactory();
