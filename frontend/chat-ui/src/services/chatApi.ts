@@ -8,6 +8,7 @@ export const SEND_FAILED_MESSAGE = 'Your message could not be sent.'
 export const REPLY_INTERRUPTED_MESSAGE = 'The reply was interrupted.'
 export const CONVERSATION_NOT_FOUND_MESSAGE = 'Conversation not found.'
 export const HISTORY_LOAD_FAILED_MESSAGE = 'Your conversation could not be loaded.'
+export const MODELS_LOAD_FAILED_MESSAGE = 'The models could not be loaded.'
 
 export interface StreamCallbacks {
   onConversationId: (id: string) => void
@@ -17,6 +18,29 @@ export interface StreamCallbacks {
 }
 
 export type HistoryResult = { messages: ChatMessage[] } | { error: string }
+
+export interface ModelOption {
+  id: string
+  name: string
+}
+
+export interface ModelsOffered {
+  defaultModel: string
+  models: ModelOption[]
+}
+
+export type ModelsResult = ModelsOffered | { error: string }
+
+export async function getModels(): Promise<ModelsResult> {
+  try {
+    const response = await authorizedFetch(`${API_BASE}/chat/models`)
+    if (!response.ok) return { error: MODELS_LOAD_FAILED_MESSAGE }
+    const offered: ModelsOffered = await response.json()
+    return { defaultModel: offered.defaultModel, models: offered.models }
+  } catch {
+    return { error: MODELS_LOAD_FAILED_MESSAGE }
+  }
+}
 
 export async function getHistory(conversationId: string): Promise<HistoryResult> {
   try {
@@ -44,13 +68,14 @@ export async function streamMessage(
   conversationId: string | undefined,
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
+  model?: string,
 ): Promise<void> {
   let response: Response
   try {
     response = await authorizedFetch(`${API_BASE}/chat/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, conversationId: conversationId ?? null }),
+      body: JSON.stringify({ message, conversationId: conversationId ?? null, ...(model && { model }) }),
       signal,
     })
   } catch (err) {

@@ -1,15 +1,17 @@
 import { StrictMode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatWindow } from '../ChatWindow'
 import {
   streamMessage,
   getHistory,
+  getModels,
   CONVERSATION_NOT_FOUND_MESSAGE,
   HISTORY_LOAD_FAILED_MESSAGE,
+  MODELS_LOAD_FAILED_MESSAGE,
 } from '../../services/chatApi'
-import type { HistoryResult, StreamCallbacks } from '../../services/chatApi'
+import type { HistoryResult, ModelsResult, StreamCallbacks } from '../../services/chatApi'
 import type { ChatMessage } from '../../types/chat'
 import { authService } from '../../services/authService'
 import {
@@ -24,6 +26,7 @@ vi.mock('../../services/chatApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/chatApi')>()),
   streamMessage: vi.fn(),
   getHistory: vi.fn(),
+  getModels: vi.fn(),
 }))
 
 const CONVERSATION_ID = 'conv-123'
@@ -36,6 +39,12 @@ function mockStream(words: string[], conversationId = CONVERSATION_ID) {
       callbacks.onComplete()
     },
   )
+}
+
+const LOCAL_ONLY: ModelsResult = { defaultModel: 'local', models: [{ id: 'local', name: 'Local · gemma3:4b' }] }
+const LOCAL_AND_GROQ: ModelsResult = {
+  defaultModel: 'local',
+  models: [{ id: 'local', name: 'Local · gemma3:4b' }, { id: 'groq', name: 'Groq · gpt-oss-120b' }],
 }
 
 const SAVED_ID = '3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
@@ -61,7 +70,9 @@ describe('ChatWindow', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     openAt('/')
+    localStorage.clear()
     vi.mocked(getHistory).mockResolvedValue({ messages: SAVED_MESSAGES })
+    vi.mocked(getModels).mockResolvedValue(LOCAL_ONLY)
     vi.spyOn(authService, 'getValidToken').mockResolvedValue('token')
   })
 
@@ -128,8 +139,8 @@ describe('ChatWindow', () => {
     await userEvent.click(screen.getByRole('button', { name: /send/i }))
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
 
-    expect(spy).toHaveBeenNthCalledWith(1, 'First', undefined, expect.any(Object), expect.any(AbortSignal))
-    expect(spy).toHaveBeenNthCalledWith(2, 'Second', CONVERSATION_ID, expect.any(Object), expect.any(AbortSignal))
+    expect(spy).toHaveBeenNthCalledWith(1, 'First', undefined, expect.any(Object), expect.any(AbortSignal), 'local')
+    expect(spy).toHaveBeenNthCalledWith(2, 'Second', CONVERSATION_ID, expect.any(Object), expect.any(AbortSignal), 'local')
   })
 
   // ── Cycle 2.2 ──────────────────────────────────────────────────────────
@@ -381,7 +392,7 @@ describe('ChatWindow', () => {
     await send('Follow-up')
 
     await waitFor(() =>
-      expect(streamMessage).toHaveBeenCalledWith('Follow-up', SAVED_ID, expect.any(Object), expect.any(AbortSignal)),
+      expect(streamMessage).toHaveBeenCalledWith('Follow-up', SAVED_ID, expect.any(Object), expect.any(AbortSignal), 'local'),
     )
   })
 
@@ -411,7 +422,7 @@ describe('ChatWindow', () => {
 
     await send('Hello')
     await waitFor(() =>
-      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal)),
+      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal), 'local'),
     )
   })
 
@@ -476,7 +487,7 @@ describe('ChatWindow', () => {
     expect(conversationInUrl()).toBeNull()
     await send('Hello')
     await waitFor(() =>
-      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal)),
+      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal), 'local'),
     )
   })
 
@@ -503,5 +514,100 @@ describe('ChatWindow', () => {
 
     expect(screen.getByRole('textbox')).toBeEnabled()
     expect(conversationInUrl()).toBeNull()
+  })
+
+  // ── Settings: the model ─────────────────────────────────────────────────
+
+  async function openSettings() {
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }))
+    return screen.findByRole('dialog', { name: 'Settings' })
+  }
+
+  async function chooseModel(dialog: HTMLElement, name: string) {
+    await userEvent.click(within(dialog).getByRole('combobox', { name: 'Model' }))
+    await userEvent.click(await screen.findByRole('option', { name }))
+  }
+
+  it('lists the offered models in Settings, with the one in use selected', async () => {
+    vi.mocked(getModels).mockResolvedValue(LOCAL_AND_GROQ)
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+
+    const model = within(dialog).getByRole('combobox', { name: 'Model' })
+    await waitFor(() => expect(model).toHaveTextContent('Local · gemma3:4b'))
+    await userEvent.click(model)
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['Local · gemma3:4b', 'Groq · gpt-oss-120b'])
+  })
+
+  it('shows the model even when only one is offered', async () => {
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Model' })).toHaveTextContent('Local · gemma3:4b'))
+  })
+
+  it('sends the next message with the model saved in Settings', async () => {
+    vi.mocked(getModels).mockResolvedValue(LOCAL_AND_GROQ)
+    mockStream(['Hi'])
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+    await chooseModel(dialog, 'Groq · gpt-oss-120b')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await send('Hello')
+
+    await waitFor(() =>
+      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal), 'groq'),
+    )
+  })
+
+  it('keeps the model in use when Settings is cancelled', async () => {
+    vi.mocked(getModels).mockResolvedValue(LOCAL_AND_GROQ)
+    mockStream(['Hi'])
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+    await chooseModel(dialog, 'Groq · gpt-oss-120b')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await send('Hello')
+
+    await waitFor(() =>
+      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal), 'local'),
+    )
+  })
+
+  it('remembers the saved model across a remount', async () => {
+    vi.mocked(getModels).mockResolvedValue(LOCAL_AND_GROQ)
+    const { unmount } = render(<ChatWindow />)
+    const dialog = await openSettings()
+    await chooseModel(dialog, 'Groq · gpt-oss-120b')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    unmount()
+
+    render(<ChatWindow />)
+    const reopened = await openSettings()
+
+    await waitFor(() =>
+      expect(within(reopened).getByRole('combobox', { name: 'Model' })).toHaveTextContent('Groq · gpt-oss-120b'),
+    )
+  })
+
+  it('says the models could not be loaded, and sends without naming one', async () => {
+    vi.mocked(getModels).mockResolvedValue({ error: MODELS_LOAD_FAILED_MESSAGE })
+    mockStream(['Hi'])
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+    expect(await within(dialog).findByText(MODELS_LOAD_FAILED_MESSAGE)).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await send('Hello')
+
+    await waitFor(() => expect(streamMessage).toHaveBeenCalled())
+    expect(vi.mocked(streamMessage).mock.calls[0][4]).toBeUndefined()
   })
 })

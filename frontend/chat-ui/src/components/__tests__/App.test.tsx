@@ -23,6 +23,7 @@ vi.mock('../../services/authService', () => ({
 vi.mock('../../services/chatApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/chatApi')>()),
   getHistory: vi.fn().mockResolvedValue({ messages: [] }),
+  getModels: vi.fn().mockResolvedValue({ defaultModel: 'local', models: [{ id: 'local', name: 'Local · gemma3:4b' }] }),
 }))
 
 vi.mock('../../services/billingService', () => ({
