@@ -148,17 +148,20 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
       onWord: (word) => {
         streamingContentRef.current += word
         const content = streamingContentRef.current
+        // Read now, not when React applies the update: by then onComplete may have cleared it,
+        // and the update would add a second bubble.
+        const replyId = streamingId
         setMessages((prev) => {
-          const exists = prev.some((m) => m.id === streamingIdRef.current)
+          const exists = prev.some((m) => m.id === replyId)
           if (exists) {
             return prev.map((m) =>
-              m.id === streamingIdRef.current ? { ...m, message: content } : m,
+              m.id === replyId ? { ...m, message: content } : m,
             )
           }
           return [
             ...prev,
             {
-              id: streamingIdRef.current!,
+              id: replyId,
               message: content,
               role: 'assistant' as const,
               timestamp: new Date().toISOString(),
