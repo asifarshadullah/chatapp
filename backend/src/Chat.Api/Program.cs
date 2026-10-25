@@ -25,6 +25,9 @@ using MongoDB.Driver;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Render mounts Secret Files here. Added last, so a file wins over an environment variable.
+builder.Configuration.AddKeyPerFile(builder.Configuration["SecretsDirectory"] ?? "/etc/secrets", optional: true);
+
 // Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
