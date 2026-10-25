@@ -12,9 +12,11 @@ public interface IAiProvider
     /// Streams completion tokens for the given conversation history.
     /// Tokens are yielded as they arrive from the model.
     /// </summary>
+    /// <param name="modelId">The configured model option to answer with, or null for the default.</param>
     /// <param name="history">Full conversation history including the latest user message.</param>
     /// <param name="ct">Cancellation token.</param>
     IAsyncEnumerable<string> StreamCompletionAsync(
+        string? modelId,
         IReadOnlyList<ChatMessage> history,
         CancellationToken ct = default);
 }

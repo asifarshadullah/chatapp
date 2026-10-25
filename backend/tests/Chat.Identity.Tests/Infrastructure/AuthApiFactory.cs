@@ -22,7 +22,7 @@ namespace Chat.Identity.Tests.Infrastructure;
 
 /// <summary>
 /// WebApplicationFactory for Chat.Identity integration tests.
-/// Replaces external dependencies (MongoDB, Ollama, real IdentityService) with fakes.
+/// Replaces external dependencies (MongoDB, the model provider, real IdentityService) with fakes.
 /// Uses a known JWT secret so tests can create valid tokens for [Authorize] endpoints.
 /// </summary>
 public class AuthApiFactory : WebApplicationFactory<Program>
@@ -44,6 +44,9 @@ public class AuthApiFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // A Groq key in the developer's user secrets must not change what the tests see.
+        builder.UseSetting("Ai:Models:groq:ApiKey", string.Empty);
+
         // Override JWT settings so the middleware validates tokens we create in tests
         builder.UseSetting("Jwt:Secret", TestJwtSecret);
         builder.UseSetting("Jwt:Issuer", TestIssuer);
@@ -58,7 +61,7 @@ public class AuthApiFactory : WebApplicationFactory<Program>
             services.AddSingleton(new CountingChatRepository(new InMemoryChatRepository()));
             services.AddSingleton<IChatRepository>(sp => sp.GetRequiredService<CountingChatRepository>());
 
-            // Replace Ollama AI provider with fake
+            // Replace the model provider with a fake
             var aiDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IAiProvider));
             if (aiDescriptor is not null) services.Remove(aiDescriptor);
             services.AddSingleton<IAiProvider, FakeAiProvider>();
@@ -253,6 +256,7 @@ public class FakeAiProvider : IAiProvider
     public int Calls => Volatile.Read(ref _calls);
 
     public async IAsyncEnumerable<string> StreamCompletionAsync(
+        string? modelId,
         IReadOnlyList<Chat.Domain.Entities.ChatMessage> history,
         [EnumeratorCancellation] CancellationToken ct = default)
     {

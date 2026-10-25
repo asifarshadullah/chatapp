@@ -17,7 +17,7 @@ namespace Chat.Api.Tests.Infrastructure;
 
 /// <summary>
 /// Custom WebApplicationFactory that replaces MongoDB with InMemoryChatRepository,
-/// Ollama with FakeAiProvider, and JWT validation with TestAuthHandler so all
+/// the model provider with FakeAiProvider, and JWT validation with TestAuthHandler so all
 /// API integration tests run without any external dependencies.
 /// </summary>
 public class ChatApiFactory : WebApplicationFactory<Program>
@@ -30,6 +30,9 @@ public class ChatApiFactory : WebApplicationFactory<Program>
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
+        // A Groq key in the developer's user secrets must not change what the tests see.
+        builder.UseSetting("Ai:Models:groq:ApiKey", string.Empty);
+
         builder.ConfigureServices(services =>
         {
             // Replace MongoDB repository with fast in-memory version
@@ -39,7 +42,7 @@ public class ChatApiFactory : WebApplicationFactory<Program>
             services.AddSingleton(new CountingChatRepository(new InMemoryChatRepository()));
             services.AddSingleton<IChatRepository>(sp => sp.GetRequiredService<CountingChatRepository>());
 
-            // Replace Ollama AI provider with a deterministic fake
+            // Replace the model provider with a deterministic fake
             var aiDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IAiProvider));
             if (aiDescriptor is not null)
                 services.Remove(aiDescriptor);
@@ -80,14 +83,19 @@ public class FakeAiProvider : IAiProvider
 
     public int Calls => Volatile.Read(ref _calls);
 
+    /// <summary>The model option the latest reply was asked of.</summary>
+    public string? LastModelId { get; private set; }
+
     /// <summary>Replaces the fixed reply. Set it only on a test's own factory, not a shared fixture.</summary>
     public Func<CancellationToken, IAsyncEnumerable<string>>? Script { get; set; }
 
     public async IAsyncEnumerable<string> StreamCompletionAsync(
+        string? modelId,
         IReadOnlyList<ChatMessage> history,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         Interlocked.Increment(ref _calls);
+        LastModelId = modelId;
         if (Script is not null)
         {
             await foreach (var token in Script(ct).WithCancellation(ct))

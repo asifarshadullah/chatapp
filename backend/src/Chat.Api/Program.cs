@@ -49,10 +49,13 @@ builder.Services.AddScoped<IMongoDatabase>(sp =>
 
 builder.Services.AddScoped<IChatRepository, MongoChatRepository>();
 
-// Ollama AI provider
-builder.Services.Configure<OllamaSettings>(
-    builder.Configuration.GetSection("Ollama"));
-builder.Services.AddScoped<IAiProvider, OllamaAiProvider>();
+// Model options: every service offering the OpenAI chat completions API, Ollama's included
+builder.Services.AddOptions<AiSettings>()
+    .Bind(builder.Configuration.GetSection("Ai"))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<AiSettings>, AiSettingsValidator>();
+builder.Services.AddSingleton<IModelCatalog, ModelCatalog>();
+builder.Services.AddSingleton<IAiProvider, OpenAiCompatibleProvider>();
 
 // Application layer services
 builder.Services.AddScoped<IChatService, ChatService>();

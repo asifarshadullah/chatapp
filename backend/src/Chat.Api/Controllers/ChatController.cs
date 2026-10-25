@@ -25,6 +25,7 @@ public class ChatController : ControllerBase
     private readonly ILogger<ChatController> _logger;
 
     private const string ReplyFailedMessage = "The reply could not be completed.";
+    private const string ModelRateLimitedMessage = "The demo has reached its model limit for now. Please try again later.";
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatController"/> class.
@@ -55,6 +56,7 @@ public class ChatController : ControllerBase
     /// <response code="403">If the caller's role does not grant conversation:create, or their plan does not include chat.</response>
     /// <response code="404">If the conversation does not exist or is not the caller's.</response>
     /// <response code="502">If the model fails before its first token.</response>
+    /// <response code="503">If the model service is at its rate limit before the first token.</response>
     [HttpPost("messages")]
     [Authorize(Policy = "CanChat")]
     [ProducesResponseType(typeof(string), StatusCodes.Status200OK, "text/event-stream")]
@@ -62,6 +64,7 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SendMessage(
         [FromBody] SendMessageRequest request,
         CancellationToken cancellationToken)
@@ -73,13 +76,12 @@ public class ChatController : ControllerBase
             return Problem(
                 detail: $"Message cannot be longer than {ChatMessage.MaxContentLength} characters.",
                 statusCode: StatusCodes.Status400BadRequest);
-
         var userId = _currentUser.UserId;
         if (!await _planFeatureService.IsEnabledAsync("chat", userId, cancellationToken))
             return Problem(detail: "Chat is not available on your current plan.", statusCode: StatusCodes.Status403Forbidden);
 
         await using var items = _chatService
-            .StreamResponseAsync(request.Message, userId, request.ConversationId, cancellationToken)
+            .StreamResponseAsync(request.Message, userId, request.ConversationId, ct: cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         // The first step looks up the conversation, so refusals still precede any output.
@@ -92,6 +94,11 @@ public class ChatController : ControllerBase
         {
             // Same answer whether the conversation is missing or someone else's.
             return Problem(detail: "Conversation not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (ModelRateLimitedException ex)
+        {
+            _logger.LogWarning(ex, "The model service refused the reply at its rate limit");
+            return Problem(detail: ModelRateLimitedMessage, statusCode: StatusCodes.Status503ServiceUnavailable);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

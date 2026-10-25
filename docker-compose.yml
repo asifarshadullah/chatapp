@@ -37,8 +37,14 @@ services:
       MongoDB__DatabaseName: chatapp
       # Local only. A deployed app gets its own secret from the host.
       Jwt__Secret: local-compose-only-secret-never-use-when-deployed-0123456789
-      Ollama__BaseUrl: http://host.docker.internal:11434
-      Ollama__Model: gemma3:4b
+      # The image offers only Groq; locally the host's Ollama is added and made the default.
+      Ai__DefaultModel: local
+      Ai__Models__local__Name: "Local · gemma3:4b"
+      Ai__Models__local__BaseUrl: http://host.docker.internal:11434/v1
+      Ai__Models__local__Model: gemma3:4b
+      Ai__Models__local__ApiKey: ollama
+      # Groq is offered too when GROQ_API_KEY is set in the shell running compose.
+      Ai__Models__groq__ApiKey: ${GROQ_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

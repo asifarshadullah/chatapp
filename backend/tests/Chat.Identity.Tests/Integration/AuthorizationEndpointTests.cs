@@ -7,7 +7,7 @@ namespace Chat.Identity.Tests.Integration;
 /// <summary>
 /// Integration tests for RBAC policy wiring.
 /// AuthApiFactory runs the real PermissionService against a seeded FakeRoleStore —
-/// no MongoDB or Ollama required.
+/// no MongoDB or model service required.
 /// </summary>
 public class AuthorizationEndpointTests : IClassFixture<AuthApiFactory>
 {

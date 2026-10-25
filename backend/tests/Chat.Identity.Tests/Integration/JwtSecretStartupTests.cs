@@ -25,6 +25,8 @@ public class JwtSecretStartupTests
             builder.UseEnvironment(environment);
             builder.UseSetting("MongoDB:ConnectionString", LocalMongo);
             builder.UseSetting("MongoDB:DatabaseName", "chatapp_test");
+            // Production offers only Groq, and refuses to start without its key.
+            builder.UseSetting("Ai:Models:groq:ApiKey", "gsk_test_key");
             // UseSetting cannot unset a value, and an empty one reads the same as a missing one.
             builder.UseSetting("Jwt:Secret", secret ?? string.Empty);
         });
