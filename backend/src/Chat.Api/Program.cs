@@ -112,7 +112,7 @@ var jwtSecret = builder.Configuration["Jwt:Secret"] ?? string.Empty;
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "chatapp";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "chatapp";
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+var authentication = builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.MapInboundClaims = false; // keep 'sub' as 'sub', not mapped to NameIdentifier
@@ -128,13 +128,20 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.Zero
         };
     })
-    .AddCookie("ExternalCookie") // temporary cookie for the Google OAuth round-trip
-    .AddGoogle(options =>
+    .AddCookie("ExternalCookie"); // temporary cookie for the Google OAuth round-trip
+
+// The authentication middleware consults every remote handler on every request, so a Google
+// handler without a client id would fail every request, not just Google sign-in.
+var googleClientId = builder.Configuration["Google:ClientId"];
+if (!string.IsNullOrEmpty(googleClientId))
+{
+    authentication.AddGoogle(options =>
     {
-        options.ClientId = builder.Configuration["Google:ClientId"] ?? string.Empty;
+        options.ClientId = googleClientId;
         options.ClientSecret = builder.Configuration["Google:ClientSecret"] ?? string.Empty;
         options.SignInScheme = "ExternalCookie";
     });
+}
 
 builder.Services.AddAuthorization(options =>
 {

@@ -81,8 +81,13 @@ public class AuthController : ControllerBase
     /// user's "keep me signed in" choice through to the callback.
     /// </summary>
     [HttpGet("google")]
-    public IActionResult GoogleLogin([FromQuery] bool staySignedIn = false)
+    public async Task<IActionResult> GoogleLogin([FromQuery] bool staySignedIn = false)
     {
+        // Program registers Google only when it is configured.
+        var schemes = HttpContext.RequestServices.GetRequiredService<IAuthenticationSchemeProvider>();
+        if (await schemes.GetSchemeAsync(GoogleDefaults.AuthenticationScheme) is null)
+            return NotFound();
+
         var props = new AuthenticationProperties
         {
             RedirectUri = Url.Action(nameof(GoogleCallback), "Auth")

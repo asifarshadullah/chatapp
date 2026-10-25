@@ -3,6 +3,7 @@ using Chat.Api.Controllers;
 using Chat.Identity.Tests.Infrastructure;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace Chat.Identity.Tests.Integration;
 
@@ -23,6 +25,13 @@ public class GoogleStaySignedInTests
 {
     private const string ChoiceKey = "stay_signed_in";
 
+    private static AuthenticationSchemeProvider GoogleOnlySchemes()
+    {
+        var options = new AuthenticationOptions();
+        options.AddScheme(GoogleDefaults.AuthenticationScheme, s => s.HandlerType = typeof(GoogleHandler));
+        return new AuthenticationSchemeProvider(Options.Create(options));
+    }
+
     private static AuthController Build(FakeIdentityService identity,
         RecordingExternalAuthentication authentication, out DefaultHttpContext http)
     {
@@ -30,6 +39,7 @@ public class GoogleStaySignedInTests
         {
             RequestServices = new ServiceCollection()
                 .AddSingleton<IAuthenticationService>(authentication)
+                .AddSingleton<IAuthenticationSchemeProvider>(GoogleOnlySchemes())
                 .AddSingleton<IUrlHelperFactory, StubUrlHelperFactory>()
                 .BuildServiceProvider()
         };
@@ -49,22 +59,22 @@ public class GoogleStaySignedInTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void GoogleLogin_CarriesTheChoiceInTheAuthenticationProperties(bool staySignedIn)
+    public async Task GoogleLogin_CarriesTheChoiceInTheAuthenticationProperties(bool staySignedIn)
     {
         var controller = Build(new FakeIdentityService(), new RecordingExternalAuthentication(), out _);
 
-        var result = controller.GoogleLogin(staySignedIn);
+        var result = await controller.GoogleLogin(staySignedIn);
 
         var challenge = result.Should().BeOfType<ChallengeResult>().Subject;
         challenge.Properties!.Items[ChoiceKey].Should().Be(staySignedIn.ToString());
     }
 
     [Fact]
-    public void GoogleLogin_DefaultsToNotStayingSignedIn()
+    public async Task GoogleLogin_DefaultsToNotStayingSignedIn()
     {
         var controller = Build(new FakeIdentityService(), new RecordingExternalAuthentication(), out _);
 
-        var result = (ChallengeResult)controller.GoogleLogin();
+        var result = (ChallengeResult)await controller.GoogleLogin();
 
         result.Properties!.Items[ChoiceKey].Should().Be(bool.FalseString);
     }
