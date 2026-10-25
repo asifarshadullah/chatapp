@@ -17,9 +17,12 @@ public class ModelCatalog : IModelCatalog
             .Where(m => m.Value.IsOffered)
             .Select(m => new ModelSummary(m.Key, m.Value.Name))
             .ToList();
+        // The option's own id, so it matches a listed one exactly whatever case the setting used.
+        DefaultId = _settings.Models.Keys.FirstOrDefault(
+            id => string.Equals(id, _settings.DefaultModel, StringComparison.OrdinalIgnoreCase)) ?? _settings.DefaultModel;
     }
 
-    public string DefaultId => _settings.DefaultModel;
+    public string DefaultId { get; }
 
     public IReadOnlyList<ModelSummary> Offered { get; }
 

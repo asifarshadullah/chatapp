@@ -37,6 +37,19 @@ public class ModelCatalogTests
         typeof(Chat.Application.DTOs.ModelSummary).GetProperties().Select(p => p.Name).Should().BeEquivalentTo("Id", "Name");
     }
 
+    [Fact]
+    public void TheDefault_IsNamedByItsOptionsOwnId_WhateverItsCaseInConfiguration()
+    {
+        // The browser compares ids exactly, so "LOCAL" would match none of the listed options.
+        var catalog = new ModelCatalog(Options.Create(new AiSettings
+        {
+            DefaultModel = "LOCAL",
+            Models = { ["local"] = new() { Name = "Local", BaseUrl = "http://localhost:11434/v1", ApiKey = "ollama", Model = "m" } },
+        }));
+
+        catalog.DefaultId.Should().Be("local");
+    }
+
     [Theory]
     [InlineData("local", true)]
     [InlineData("LOCAL", true)]
