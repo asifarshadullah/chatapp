@@ -152,18 +152,6 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("AdminOnly",            p => p.AddRequirements(new PermissionRequirement("*")));
 });
 
-// CORS — allow frontend dev server (Vite default port)
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy.WithOrigins("http://localhost:5173")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials(); // Lets the refresh cookie travel on cross-origin requests
-    });
-});
-
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -184,7 +172,6 @@ var uiFiles = new StaticFileOptions
             : "no-cache"
 };
 app.UseStaticFiles(uiFiles);
-app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
