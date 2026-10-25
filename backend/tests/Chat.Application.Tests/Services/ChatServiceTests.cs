@@ -60,8 +60,6 @@ public class ChatServiceTests
     [Fact]
     public async Task StreamResponseAsync_SavesUserMessageBeforeAnyTokenYielded()
     {
-        // Break after the first token — assistant message is only saved after stream completes,
-        // so at this point only the user message should exist.
         Guid conversationId = Guid.Empty;
         await foreach (var (convId, _) in _sut.StreamResponseAsync("Hello", UserId))
         {
@@ -142,6 +140,63 @@ public class ChatServiceTests
         var history = await _sut.GetHistoryAsync(first, UserId);
         history!.Messages.Select(m => (m.Role, m.Content)).Should().Equal(
             ("user", "Hello"), ("assistant", "AI response"), ("user", "World"), ("assistant", "AI response"));
+    }
+
+    // ── Replies that stop part-way ──────────────────────────────────────────
+
+    [Fact]
+    public async Task StreamResponseAsync_ProviderFailsAfterTokens_SavesThePartialReplyAndRethrows()
+    {
+        _aiProvider.Tokens = ["Hel", "lo"];
+        _aiProvider.ThrowAfterTokens = new InvalidOperationException("model failed");
+
+        Guid conversationId = Guid.Empty;
+        var act = async () =>
+        {
+            await foreach (var (convId, _) in _sut.StreamResponseAsync("Hi", UserId))
+                conversationId = convId;
+        };
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("model failed");
+        await ShouldHoldMessagesAsync(conversationId, ("user", "Hi"), ("assistant", "Hello"));
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_CancelledAfterTokens_SavesThePartialReply()
+    {
+        _aiProvider.Tokens = ["Hel", "lo"];
+        _aiProvider.WaitForCancellationAfterTokens = true;
+        using var cts = new CancellationTokenSource();
+
+        Guid conversationId = Guid.Empty;
+        var received = 0;
+        var act = async () =>
+        {
+            await foreach (var (convId, _) in _sut.StreamResponseAsync("Hi", UserId, ct: cts.Token))
+            {
+                conversationId = convId;
+                if (++received == 2)
+                    await cts.CancelAsync();
+            }
+        };
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        await ShouldHoldMessagesAsync(conversationId, ("user", "Hi"), ("assistant", "Hello"));
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_ProviderFailsBeforeAnyToken_SavesNoReply()
+    {
+        _aiProvider.Tokens = [];
+        _aiProvider.ThrowAfterTokens = new InvalidOperationException("model failed");
+
+        var act = async () =>
+        {
+            await foreach (var _ in _sut.StreamResponseAsync("Hi", UserId)) { }
+        };
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        _repository.Conversations.Single().Messages.Select(m => m.Role).Should().Equal(MessageRole.User);
     }
 
     // ── GetHistoryAsync ─────────────────────────────────────────────────────
@@ -226,6 +281,12 @@ public class ChatServiceTests
         await act.Should().ThrowAsync<ArgumentException>();
     }
 
+    private async Task ShouldHoldMessagesAsync(Guid conversationId, params (string Role, string Content)[] expected)
+    {
+        var history = await _sut.GetHistoryAsync(conversationId, UserId);
+        history!.Messages.Select(m => (m.Role, m.Content)).Should().Equal(expected);
+    }
+
     private async Task<Guid> StartConversationAsync(string content, Guid userId)
     {
         Guid conversationId = Guid.Empty;
@@ -240,6 +301,8 @@ public class ChatServiceTests
     {
         public IEnumerable<string> Tokens { get; set; } = ["AI response"];
         public IReadOnlyList<ChatMessage>? ReceivedHistory { get; set; }
+        public Exception? ThrowAfterTokens { get; set; }
+        public bool WaitForCancellationAfterTokens { get; set; }
 
         public async IAsyncEnumerable<string> StreamCompletionAsync(
             IReadOnlyList<ChatMessage> history,
@@ -251,6 +314,11 @@ public class ChatServiceTests
                 yield return token;
                 await Task.Yield();
             }
+
+            if (ThrowAfterTokens is not null)
+                throw ThrowAfterTokens;
+            if (WaitForCancellationAfterTokens)
+                await Task.Delay(Timeout.Infinite, ct);
         }
     }
 
@@ -260,6 +328,7 @@ public class ChatServiceTests
         private readonly Dictionary<Guid, Conversation> _store = new();
 
         public int ConversationCount => _store.Count;
+        public IEnumerable<Conversation> Conversations => _store.Values;
 
         public Task<Conversation> CreateConversationAsync(Guid userId, CancellationToken ct = default)
         {
@@ -273,6 +342,7 @@ public class ChatServiceTests
 
         public Task AddMessageAsync(Guid conversationId, Guid userId, ChatMessage message, CancellationToken ct = default)
         {
+            ct.ThrowIfCancellationRequested();
             var conversation = FindOwned(conversationId, userId)
                 ?? throw new ConversationNotFoundException(conversationId);
             conversation.AddMessage(message);

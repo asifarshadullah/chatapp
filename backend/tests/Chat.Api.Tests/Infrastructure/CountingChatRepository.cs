@@ -29,8 +29,10 @@ public class CountingChatRepository(IChatRepository inner) : IChatRepository
     public Task<Conversation?> GetConversationAsync(Guid conversationId, Guid userId, CancellationToken ct = default) =>
         inner.GetConversationAsync(conversationId, userId, ct);
 
+    // Like MongoDB, a cancelled token refuses the write.
     public async Task AddMessageAsync(Guid conversationId, Guid userId, ChatMessage message, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         await inner.AddMessageAsync(conversationId, userId, message, ct);
         if (message.Role == MessageRole.Assistant)
             Interlocked.Increment(ref _repliesAdded);

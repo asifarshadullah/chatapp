@@ -46,17 +46,24 @@ public class ChatService : IChatService
         var updated = await _repository.GetConversationAsync(conversation.Id, userId, ct)
             ?? throw new InvalidOperationException("Conversation disappeared after insert.");
 
-        var sb = new StringBuilder();
-        await foreach (var token in _aiProvider.StreamCompletionAsync(updated.Messages, ct))
+        var reply = new StringBuilder();
+        try
         {
-            sb.Append(token);
-            yield return (conversation.Id, token);
+            await foreach (var token in _aiProvider.StreamCompletionAsync(updated.Messages, ct))
+            {
+                reply.Append(token);
+                yield return (conversation.Id, token);
+            }
         }
-
-        if (sb.Length > 0)
+        finally
         {
-            var assistantMessage = new ChatMessage(sb.ToString(), MessageRole.Assistant);
-            await _repository.AddMessageAsync(conversation.Id, userId, assistantMessage, ct);
+            // Also runs when the model fails or the caller leaves, so a part-way reply is kept;
+            // by then ct may be cancelled, and the save must still happen.
+            if (reply.Length > 0)
+            {
+                var assistantMessage = new ChatMessage(reply.ToString(), MessageRole.Assistant);
+                await _repository.AddMessageAsync(conversation.Id, userId, assistantMessage, CancellationToken.None);
+            }
         }
     }
 

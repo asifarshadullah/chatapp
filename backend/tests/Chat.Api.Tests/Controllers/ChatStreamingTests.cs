@@ -210,7 +210,7 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
     }
 
     [Fact]
-    public async Task PostMessage_ModelFailsAfterFirstToken_EndsWithErrorEventAndSavesNoReply()
+    public async Task PostMessage_ModelFailsAfterFirstToken_EndsWithErrorEventAndSavesThePartialReply()
     {
         await using var factory = new ChatApiFactory();
         factory.Ai.Script = ct => FailAfter(["Hel"], ct);
@@ -222,7 +222,7 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
         events[2].Json<ErrorEvent>().Message.Should().Be("The reply could not be completed.");
         events[2].Data.Should().NotContain(InternalDetail);
         var stored = await factory.Repository.GetConversationAsync(events[0].Json<Guid>(), TestAuthHandler.TestUserId);
-        stored!.Messages.Select(m => m.Content).Should().Equal("Hello");
+        stored!.Messages.Select(m => m.Content).Should().Equal("Hello", "Hel");
     }
 
     // Runs as Development, where an escaped exception would show its text on the error page.
@@ -240,7 +240,7 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
     }
 
     [Fact]
-    public async Task PostMessage_CallerClosesPartWay_StopsTheModelAndSavesNoReply()
+    public async Task PostMessage_CallerClosesPartWay_StopsTheModelAndSavesThePartialReply()
     {
         await using var factory = new ChatApiFactory();
         var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -257,8 +257,21 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
         response.Dispose();
 
         await cancelled.Task.WaitAsync(Patience);
+        // The save follows the model stopping, so wait for it rather than read once.
+        await WaitForMessageCountAsync(factory, conversationId, 2);
         var stored = await factory.Repository.GetConversationAsync(conversationId, TestAuthHandler.TestUserId);
-        stored!.Messages.Select(m => m.Content).Should().Equal("Hello");
+        stored!.Messages.Select(m => m.Content).Should().Equal("Hello", "Hel");
+    }
+
+    private static async Task WaitForMessageCountAsync(ChatApiFactory factory, Guid conversationId, int count)
+    {
+        var deadline = DateTime.UtcNow + Patience;
+        while (DateTime.UtcNow < deadline)
+        {
+            var stored = await factory.Repository.GetConversationAsync(conversationId, TestAuthHandler.TestUserId);
+            if (stored!.Messages.Count >= count) return;
+            await Task.Delay(20);
+        }
     }
 
     private const string InternalDetail = "secret internal detail";
