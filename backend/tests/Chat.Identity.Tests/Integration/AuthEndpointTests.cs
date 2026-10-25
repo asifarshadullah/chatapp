@@ -63,6 +63,14 @@ public class AuthEndpointTests : IClassFixture<AuthApiFactory>
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task Unauthenticated_GetModels_Returns401()
+    {
+        var response = await _client.GetAsync("/api/chat/models");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     // ── Phase 4 Cycle 4.1 ────────────────────────────────────────────────────
 
     [Fact]
