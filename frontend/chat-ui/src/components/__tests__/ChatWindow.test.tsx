@@ -516,6 +516,23 @@ describe('ChatWindow', () => {
     expect(conversationInUrl()).toBeNull()
   })
 
+  it('shows a reply once when its last token arrives together with the end of the stream', async () => {
+    vi.mocked(streamMessage).mockImplementation(async (_msg, _convId, callbacks: StreamCallbacks) => {
+      callbacks.onConversationId(CONVERSATION_ID)
+      callbacks.onWord('Padma, Jamuna')
+      // The first token is shown before the rest arrives, as over a real connection.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      callbacks.onWord(', Meghna')
+      callbacks.onComplete()
+    })
+    render(<ChatWindow />)
+
+    await send('Name three rivers')
+
+    expect(await screen.findByText('Padma, Jamuna, Meghna')).toBeInTheDocument()
+    expect(screen.queryByText('Padma, Jamuna')).not.toBeInTheDocument()
+  })
+
   // ── Settings: the model ─────────────────────────────────────────────────
 
   async function openSettings() {
