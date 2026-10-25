@@ -43,7 +43,7 @@ services:
       Ai__Models__local__BaseUrl: http://host.docker.internal:11434/v1
       Ai__Models__local__Model: gemma3:4b
       Ai__Models__local__ApiKey: ollama
-      # Groq is offered too when GROQ_API_KEY is set in the shell running compose.
+      # Groq is offered too when GROQ_API_KEY is set, as scripts/with-groq.sh does from the Keychain.
       Ai__Models__groq__ApiKey: ${GROQ_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
