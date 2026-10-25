@@ -438,7 +438,7 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
     private static async IAsyncEnumerable<string> RateLimited()
     {
         await Task.Yield();
-        throw new ModelRateLimitedException(new InvalidOperationException("429 from the service"));
+        throw new ModelRateLimitedException("429 from the service");
 #pragma warning disable CS0162 // An iterator needs a yield to be one.
         yield break;
 #pragma warning restore CS0162

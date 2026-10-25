@@ -198,12 +198,29 @@ public class OpenAiCompatibleProviderTests
         tokens.Current.Should().Be("second");
     }
 
+    [Fact]
+    public async Task AKeyWithALineEnding_IsSentWithoutIt()
+    {
+        // A secret file saved with Windows line endings keeps a \r after the binder strips \n.
+        var settings = Settings();
+        settings.Models["a"].ApiKey = KeyA + "\r\n";
+        var handler = Answering("Hi");
+
+        await Collect(Provider(handler, settings), "a", History(1));
+
+        handler.Requests.Single().Request.Headers.Authorization!.ToString().Should().Be($"Bearer {KeyA}");
+    }
+
     // ── Refusals ─────────────────────────────────────────────────────────────
 
     [Fact]
     public async Task ARateLimitedService_IsReportedAsSuch_WithoutRetrying()
     {
-        var handler = new FakeChatCompletionsHandler { Status = HttpStatusCode.TooManyRequests };
+        var handler = new FakeChatCompletionsHandler
+        {
+            Status = HttpStatusCode.TooManyRequests,
+            ErrorBody = "{\"error\":{\"message\":\"Rate limit reached for key " + KeyA + "\"}}",
+        };
 
         var act = () => Collect(Provider(handler), "a", History(1));
 
@@ -215,7 +232,12 @@ public class OpenAiCompatibleProviderTests
     [Fact]
     public async Task AFailingService_IsNotReportedAsRateLimited_AndDoesNotRevealTheKey()
     {
-        var handler = new FakeChatCompletionsHandler { Status = HttpStatusCode.InternalServerError, ErrorBody = "{}" };
+        // Some services echo the key they were given back in their error body.
+        var handler = new FakeChatCompletionsHandler
+        {
+            Status = HttpStatusCode.Unauthorized,
+            ErrorBody = "{\"error\":{\"message\":\"Invalid API key: " + KeyA + "\"}}",
+        };
 
         var act = () => Collect(Provider(handler), "a", History(1));
 

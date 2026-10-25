@@ -7,9 +7,9 @@ namespace Chat.Application.Exceptions;
 /// </summary>
 public class ModelRateLimitedException : Exception
 {
-    /// <summary>Creates the exception, keeping the service's error as the inner one.</summary>
-    public ModelRateLimitedException(Exception inner)
-        : base("The model service is at its rate limit.", inner)
+    /// <summary>Creates the exception with the service's own explanation, already stripped of any key.</summary>
+    public ModelRateLimitedException(string serviceError)
+        : base($"The model service is at its rate limit: {serviceError}")
     {
     }
 }
