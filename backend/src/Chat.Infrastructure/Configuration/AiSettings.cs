@@ -25,7 +25,15 @@ public class ModelOption
 {
     public string Name { get; set; } = string.Empty;
     public string BaseUrl { get; set; } = string.Empty;
-    public string ApiKey { get; set; } = string.Empty;
+    private string _apiKey = string.Empty;
+
+    /// <summary>Trimmed, since a secret file saved with Windows line endings keeps a trailing \r.</summary>
+    public string ApiKey
+    {
+        get => _apiKey;
+        set => _apiKey = value?.Trim() ?? string.Empty;
+    }
+
     public string Model { get; set; } = string.Empty;
 
     /// <summary><c>low</c>, <c>medium</c> or <c>high</c> for models that reason; empty sends none.</summary>

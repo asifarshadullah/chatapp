@@ -72,7 +72,7 @@ public class OpenAiCompatibleProvider : IAiProvider
         }
 
         await using var updates = client.CompleteChatStreamingAsync(messages, options, ct).GetAsyncEnumerator(ct);
-        while (await MoveNextAsync(updates))
+        while (await MoveNextAsync(updates, option.ApiKey))
         {
             foreach (var part in updates.Current.ContentUpdate)
             {
@@ -82,15 +82,20 @@ public class OpenAiCompatibleProvider : IAiProvider
         }
     }
 
-    private static async Task<bool> MoveNextAsync(IAsyncEnumerator<StreamingChatCompletionUpdate> updates)
+    // The service's error is logged by the caller, and some services echo the key they were sent,
+    // so it is rethrown with the key removed and without the original exception.
+    private static async Task<bool> MoveNextAsync(IAsyncEnumerator<StreamingChatCompletionUpdate> updates, string apiKey)
     {
         try
         {
             return await updates.MoveNextAsync();
         }
-        catch (ClientResultException ex) when (ex.Status == 429)
+        catch (ClientResultException ex)
         {
-            throw new ModelRateLimitedException(ex);
+            var error = ex.Message.Replace(apiKey, "[key]", StringComparison.Ordinal);
+            if (ex.Status == 429)
+                throw new ModelRateLimitedException(error);
+            throw new ModelServiceException(ex.Status, error);
         }
     }
 
