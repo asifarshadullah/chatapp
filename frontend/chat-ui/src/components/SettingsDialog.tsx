@@ -29,7 +29,8 @@ export function SettingsDialog({ open, models, model, onSave, onCancel }: Settin
   const chosen = draft ?? model ?? ''
 
   function close(save: boolean) {
-    if (save && chosen) onSave(chosen)
+    // Saving the choice already in use would pin today's default against a later change of it.
+    if (save && chosen && chosen !== model) onSave(chosen)
     else onCancel()
     setDraft(null)
   }

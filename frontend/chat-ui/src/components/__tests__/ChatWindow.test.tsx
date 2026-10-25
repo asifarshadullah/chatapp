@@ -613,6 +613,48 @@ describe('ChatWindow', () => {
     )
   })
 
+  it('saves nothing when Settings is saved without a change, so a later default still applies', async () => {
+    vi.mocked(getModels).mockResolvedValue(LOCAL_AND_GROQ)
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Model' })).toHaveTextContent('Local · gemma3:4b'))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    expect(localStorage.getItem('chatapp.model')).toBeNull()
+  })
+
+  it('shows the choice in use again after a cancelled change', async () => {
+    vi.mocked(getModels).mockResolvedValue(LOCAL_AND_GROQ)
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+    await chooseModel(dialog, 'Groq · gpt-oss-120b')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    const reopened = await openSettings()
+
+    expect(within(reopened).getByRole('combobox', { name: 'Model' })).toHaveTextContent('Local · gemma3:4b')
+  })
+
+  it('falls back to the default when the remembered model is no longer offered', async () => {
+    localStorage.setItem('chatapp.model', 'retired')
+    mockStream(['Hi'])
+    render(<ChatWindow />)
+
+    const dialog = await openSettings()
+    await waitFor(() => expect(within(dialog).getByRole('combobox', { name: 'Model' })).toHaveTextContent('Local · gemma3:4b'))
+    expect(localStorage.getItem('chatapp.model')).toBeNull()
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await send('Hello')
+
+    await waitFor(() =>
+      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal), 'local'),
+    )
+  })
+
   it('says the models could not be loaded, and sends without naming one', async () => {
     vi.mocked(getModels).mockResolvedValue({ error: MODELS_LOAD_FAILED_MESSAGE })
     mockStream(['Hi'])
