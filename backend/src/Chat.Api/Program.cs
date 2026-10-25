@@ -184,6 +184,13 @@ app.UseAuthorization();
 
 app.MapControllers();
 
+// Liveness only: a restart would not fix a database outage. The deploy waits for its commit here.
+app.MapGet("/healthz", (IConfiguration configuration) => Results.Ok(new
+{
+    status = "healthy",
+    commit = string.IsNullOrEmpty(configuration["APP_COMMIT"]) ? null : configuration["APP_COMMIT"]
+}));
+
 // Any other path is a page of the app, but a mistyped API call must still fail as one.
 app.MapFallbackToFile("index.html", uiFiles);
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
