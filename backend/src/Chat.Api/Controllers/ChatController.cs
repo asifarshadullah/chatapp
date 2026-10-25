@@ -22,6 +22,7 @@ public class ChatController : ControllerBase
     private readonly IChatService _chatService;
     private readonly ICurrentUser _currentUser;
     private readonly IPlanFeatureService _planFeatureService;
+    private readonly IModelCatalog _models;
     private readonly ILogger<ChatController> _logger;
 
     private const string ReplyFailedMessage = "The reply could not be completed.";
@@ -33,18 +34,26 @@ public class ChatController : ControllerBase
     /// <param name="chatService">The chat service for processing messages.</param>
     /// <param name="currentUser">The signed-in caller, whose conversations this controller serves.</param>
     /// <param name="planFeatureService">Decides whether the caller's plan includes chat.</param>
+    /// <param name="models">The model options this deployment offers.</param>
     /// <param name="logger">Records why a reply failed, which the caller is not told.</param>
     public ChatController(
         IChatService chatService,
         ICurrentUser currentUser,
         IPlanFeatureService planFeatureService,
+        IModelCatalog models,
         ILogger<ChatController> logger)
     {
         _chatService = chatService;
         _currentUser = currentUser;
         _planFeatureService = planFeatureService;
+        _models = models;
         _logger = logger;
     }
+
+    /// <summary>Lists the model options this deployment offers, by id and name, and the default.</summary>
+    [HttpGet("models")]
+    [ProducesResponseType(typeof(ModelsResponse), StatusCodes.Status200OK)]
+    public ActionResult<ModelsResponse> GetModels() => new ModelsResponse(_models.DefaultId, _models.Offered);
 
     /// <summary>
     /// Streams the AI reply as server-sent events: <c>conversation</c>, then <c>token</c>s, then <c>done</c>.
@@ -52,7 +61,7 @@ public class ChatController : ControllerBase
     /// <param name="request">The message, and the conversation to continue or null for a new one.</param>
     /// <param name="cancellationToken">Signals that the caller has gone away, which stops the reply.</param>
     /// <response code="200">The reply, as an event stream.</response>
-    /// <response code="400">If the message is empty or too long, whatever conversation it names.</response>
+    /// <response code="400">If the message is empty or too long, whatever conversation it names, or names a model that is not offered.</response>
     /// <response code="403">If the caller's role does not grant conversation:create, or their plan does not include chat.</response>
     /// <response code="404">If the conversation does not exist or is not the caller's.</response>
     /// <response code="429">If the caller has already sent today's allowed number of messages.</response>
@@ -78,12 +87,16 @@ public class ChatController : ControllerBase
             return Problem(
                 detail: $"Message cannot be longer than {ChatMessage.MaxContentLength} characters.",
                 statusCode: StatusCodes.Status400BadRequest);
+        var modelId = request.Model ?? _models.DefaultId;
+        if (!_models.IsOffered(modelId))
+            return Problem(detail: "That model is not available.", statusCode: StatusCodes.Status400BadRequest);
+
         var userId = _currentUser.UserId;
         if (!await _planFeatureService.IsEnabledAsync("chat", userId, cancellationToken))
             return Problem(detail: "Chat is not available on your current plan.", statusCode: StatusCodes.Status403Forbidden);
 
         await using var items = _chatService
-            .StreamResponseAsync(request.Message, userId, request.ConversationId, ct: cancellationToken)
+            .StreamResponseAsync(request.Message, userId, request.ConversationId, modelId, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         // The first step looks up the conversation, so refusals still precede any output.

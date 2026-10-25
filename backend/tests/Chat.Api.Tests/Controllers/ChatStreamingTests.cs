@@ -331,6 +331,46 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
         return conversation.Id;
     }
 
+    // ── A message is answered by the option it names ─────────────────────────
+
+    [Fact]
+    public async Task PostMessage_NamingAnOfferedModel_IsAnsweredByIt()
+    {
+        await using var factory = new ChatApiFactory();
+
+        using var response = await EventStream.PostMessageAsync(factory.CreateClient(), new { message = "Hi", model = "local" });
+        await EventStream.ReadAllEventsAsync(response);
+
+        factory.Ai.LastModelId.Should().Be("local");
+    }
+
+    [Fact]
+    public async Task PostMessage_NamingNoModel_IsAnsweredByTheDefault()
+    {
+        await using var factory = new ChatApiFactory();
+
+        using var response = await EventStream.PostMessageAsync(factory.CreateClient(), new { message = "Hi" });
+        await EventStream.ReadAllEventsAsync(response);
+
+        factory.Ai.LastModelId.Should().Be("local");
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("groq")] // configured, but without a key it is not offered
+    public async Task PostMessage_NamingAModelThatIsNotOffered_IsRefusedAndCountsForNothing(string model)
+    {
+        await using var factory = new ChatApiFactory();
+        var createdBefore = factory.Repository.ConversationsCreated;
+
+        using var response = await EventStream.PostMessageAsync(factory.CreateClient(), new { message = "Hi", model }, user: Alice);
+
+        await ShouldBeRefused(response, HttpStatusCode.BadRequest, "That model is not available.");
+        factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+        factory.Ai.Calls.Should().Be(0);
+        factory.Quota.CountFor(Alice).Should().Be(0);
+    }
+
     // ── The daily limit and the model's own limit ────────────────────────────
 
     [Fact]
