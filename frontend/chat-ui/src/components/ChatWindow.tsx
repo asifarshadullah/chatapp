@@ -178,7 +178,7 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
         setIsStreaming(false)
         setError(err)
         if (err === SESSION_EXPIRED_MESSAGE) onSessionExpiredRef.current?.()
-        setMessages((prev) => prev.filter((m) => m.id !== streamingIdRef.current))
+        // What arrived stays on screen: the server saves it too, so a reload shows the same.
         streamingIdRef.current = null
         streamingContentRef.current = ''
       },

@@ -533,6 +533,21 @@ describe('ChatWindow', () => {
     expect(screen.queryByText('Padma, Jamuna')).not.toBeInTheDocument()
   })
 
+  it('keeps the part of a reply that arrived before an error, as the server saves it', async () => {
+    vi.mocked(streamMessage).mockImplementation(async (_msg, _convId, callbacks: StreamCallbacks) => {
+      callbacks.onConversationId(CONVERSATION_ID)
+      callbacks.onWord('Padma, Jam')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      callbacks.onError('The reply was interrupted.')
+    })
+    render(<ChatWindow />)
+
+    await send('Name three rivers')
+
+    expect(await screen.findByText('The reply was interrupted.')).toBeInTheDocument()
+    expect(screen.getByText('Padma, Jam')).toBeInTheDocument()
+  })
+
   // ── Settings: the model ─────────────────────────────────────────────────
 
   async function openSettings() {
