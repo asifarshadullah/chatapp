@@ -278,4 +278,22 @@ test.describe('Session', () => {
     });
     expect(status).toBe(200);
   });
+
+  test('another user cannot open a conversation from its URL', async ({ page, browser }) => {
+    const chat = new ChatPage(page);
+    await signUp(page);
+    await chat.sendAndAwaitReply('Reply with the single word: private', 1);
+    await expect(page).toHaveURL(/conversation=/);
+    const conversationUrl = page.url();
+
+    const otherContext = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    const otherPage = await otherContext.newPage();
+    await signUp(otherPage);
+    await otherPage.goto(conversationUrl);
+
+    await expect(otherPage.getByText('Conversation not found.')).toBeVisible();
+    await expect(new ChatPage(otherPage).getUserMessages()).toHaveCount(0);
+    await expect(otherPage.getByText('Reply with the single word: private')).toHaveCount(0);
+    await otherContext.close();
+  });
 });

@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Box, Button, CircularProgress, Typography, Alert } from '@mui/material'
 import type { ChatMessage } from '../types/chat'
-import { streamMessage } from '../services/chatApi'
+import { streamMessage, getHistory, CONVERSATION_NOT_FOUND_MESSAGE } from '../services/chatApi'
+import {
+  conversationInUrl,
+  isConversationId,
+  showConversationInUrl,
+  removeConversationFromUrl,
+} from '../services/conversationUrl'
 import { authService } from '../services/authService'
 import { SessionExpiredError, SESSION_EXPIRED_MESSAGE } from '../services/sessionErrors'
 import { MessageList } from './MessageList'
@@ -14,11 +20,18 @@ interface ChatWindowProps {
   onSessionExpired?: () => void
 }
 
+type HistoryState = 'none' | 'loading' | 'failed'
+
 export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: ChatWindowProps) {
+  const [requested] = useState(conversationInUrl)
+  const requestedIsValid = requested !== null && isConversationId(requested)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(
+    requested !== null && !requestedIsValid ? CONVERSATION_NOT_FOUND_MESSAGE : null,
+  )
   const [conversationId, setConversationId] = useState<string | undefined>()
+  const [historyState, setHistoryState] = useState<HistoryState>(requestedIsValid ? 'loading' : 'none')
   const streamingIdRef = useRef<string | null>(null)
   const streamingContentRef = useRef('')
   // Held in a ref so the connect effect stays mount-only: re-running it on a
@@ -46,6 +59,43 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
 
   useEffect(() => () => replyInFlightRef.current?.abort(), [])
 
+  useEffect(() => {
+    if (requested === null) return
+    if (!isConversationId(requested)) {
+      removeConversationFromUrl()
+      return
+    }
+    let cancelled = false
+    getHistory(requested).then((result) => {
+      if (cancelled) return
+      if ('messages' in result) {
+        setMessages(result.messages)
+        setConversationId(requested)
+        setHistoryState('none')
+        return
+      }
+      setError(result.error)
+      if (result.error === CONVERSATION_NOT_FOUND_MESSAGE) {
+        removeConversationFromUrl()
+        setHistoryState('none')
+        return
+      }
+      setHistoryState('failed')
+      if (result.error === SESSION_EXPIRED_MESSAGE) onSessionExpiredRef.current?.()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [requested])
+
+  function startNewChat() {
+    setMessages([])
+    setError(null)
+    setConversationId(undefined)
+    setHistoryState('none')
+    removeConversationFromUrl()
+  }
+
   async function handleSend(text: string) {
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -65,7 +115,10 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
     replyInFlightRef.current = reply
 
     await streamMessage(text, conversationId, {
-      onConversationId: (id) => setConversationId(id),
+      onConversationId: (id) => {
+        setConversationId(id)
+        showConversationInUrl(id)
+      },
       onWord: (word) => {
         streamingContentRef.current += word
         const content = streamingContentRef.current
@@ -103,8 +156,16 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
     }, reply.signal)
   }
 
-  const headerButtons = (onLogout || onManageBilling) && (
+  const inputBlocked = isStreaming || historyState !== 'none'
+  const canStartNewChat = messages.length > 0 || error !== null
+
+  const headerButtons = (canStartNewChat || onLogout || onManageBilling) && (
     <Box sx={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 1 }}>
+      {canStartNewChat && (
+        <Button size="small" variant="outlined" onClick={startNewChat} disabled={isStreaming}>
+          New chat
+        </Button>
+      )}
       {onManageBilling && (
         <Button size="small" variant="outlined" onClick={onManageBilling}>
           Manage Plan
@@ -118,7 +179,7 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
     </Box>
   )
 
-  if (messages.length === 0 && !error) {
+  if (messages.length === 0 && !error && historyState === 'none') {
     return (
       <Box
         sx={{
@@ -139,7 +200,7 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
         >
           What's on the agenda today?
         </Typography>
-        <ChatInput onSend={handleSend} isLoading={isStreaming} />
+        <ChatInput onSend={handleSend} isLoading={inputBlocked} />
       </Box>
     )
   }
@@ -147,7 +208,13 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' }}>
       {headerButtons}
-      <MessageList messages={messages} />
+      {historyState === 'loading' ? (
+        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <CircularProgress aria-label="loading conversation" />
+        </Box>
+      ) : (
+        <MessageList messages={messages} />
+      )}
       {isStreaming && (
         <Box
           aria-label="typing indicator"
@@ -173,7 +240,7 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
           borderTop: '1px solid #e0e0e0',
         }}
       >
-        <ChatInput onSend={handleSend} isLoading={isStreaming} />
+        <ChatInput onSend={handleSend} isLoading={inputBlocked} />
       </Box>
     </Box>
   )

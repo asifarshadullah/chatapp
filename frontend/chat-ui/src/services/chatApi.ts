@@ -1,4 +1,4 @@
-import type { ConversationHistory } from '../types/chat'
+import type { ChatMessage, ConversationHistory } from '../types/chat'
 import { authorizedFetch } from './authorizedFetch'
 import { SessionExpiredError, SESSION_EXPIRED_MESSAGE, CONNECT_FAILED_MESSAGE } from './sessionErrors'
 
@@ -6,6 +6,8 @@ const API_BASE = '/api'
 
 export const SEND_FAILED_MESSAGE = 'Your message could not be sent.'
 export const REPLY_INTERRUPTED_MESSAGE = 'The reply was interrupted.'
+export const CONVERSATION_NOT_FOUND_MESSAGE = 'Conversation not found.'
+export const HISTORY_LOAD_FAILED_MESSAGE = 'Your conversation could not be loaded.'
 
 export interface StreamCallbacks {
   onConversationId: (id: string) => void
@@ -14,14 +16,26 @@ export interface StreamCallbacks {
   onError: (error: string) => void
 }
 
-export async function getHistory(conversationId: string): Promise<ConversationHistory> {
-  const response = await authorizedFetch(`${API_BASE}/chat/${conversationId}/history`)
+export type HistoryResult = { messages: ChatMessage[] } | { error: string }
 
-  if (!response.ok) {
-    throw new Error(`API error: ${response.status}`)
+export async function getHistory(conversationId: string): Promise<HistoryResult> {
+  try {
+    const response = await authorizedFetch(`${API_BASE}/chat/${conversationId}/history`)
+    if (response.status === 404) return { error: CONVERSATION_NOT_FOUND_MESSAGE }
+    if (!response.ok) return { error: HISTORY_LOAD_FAILED_MESSAGE }
+
+    const history: ConversationHistory = await response.json()
+    return {
+      messages: history.messages.map((record) => ({
+        id: record.id,
+        message: record.content,
+        role: record.role === 'assistant' ? 'assistant' : 'user',
+        timestamp: record.timestamp,
+      })),
+    }
+  } catch (err) {
+    return { error: err instanceof SessionExpiredError ? SESSION_EXPIRED_MESSAGE : HISTORY_LOAD_FAILED_MESSAGE }
   }
-
-  return response.json()
 }
 
 /** Every outcome ends in one onComplete or onError, except an abort, which reports nothing. */

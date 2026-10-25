@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   streamMessage,
+  getHistory,
   SEND_FAILED_MESSAGE,
   REPLY_INTERRUPTED_MESSAGE,
+  CONVERSATION_NOT_FOUND_MESSAGE,
+  HISTORY_LOAD_FAILED_MESSAGE,
   type StreamCallbacks,
 } from '../chatApi'
 import { authService } from '../authService'
@@ -224,5 +227,66 @@ describe('streamMessage', () => {
     const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit]
     expect(url).toBe('/api/chat/messages')
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer renewed-token')
+  })
+})
+
+describe('getHistory', () => {
+  it('returns the saved messages in order, in the shape the chat shows', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
+      conversationId: 'conv-1',
+      messages: [
+        { id: 'm1', content: 'Hello', role: 'user', timestamp: '2026-10-25T10:00:00Z' },
+        { id: 'm2', content: 'Hi there', role: 'assistant', timestamp: '2026-10-25T10:00:01Z' },
+      ],
+    })))
+
+    const result = await getHistory('conv-1')
+
+    expect(result).toEqual({
+      messages: [
+        { id: 'm1', message: 'Hello', role: 'user', timestamp: '2026-10-25T10:00:00Z' },
+        { id: 'm2', message: 'Hi there', role: 'assistant', timestamp: '2026-10-25T10:00:01Z' },
+      ],
+    })
+  })
+
+  it('reports a missing conversation as not found', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(problem(404)))
+
+    expect(await getHistory('conv-1')).toEqual({ error: CONVERSATION_NOT_FOUND_MESSAGE })
+  })
+
+  it('reports a server error as a failed load', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(problem(500)))
+
+    expect(await getHistory('conv-1')).toEqual({ error: HISTORY_LOAD_FAILED_MESSAGE })
+  })
+
+  it('reports an unreachable server as a failed load', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    expect(await getHistory('conv-1')).toEqual({ error: HISTORY_LOAD_FAILED_MESSAGE })
+  })
+
+  it('reports an ended session as such', async () => {
+    vi.spyOn(authService, 'getValidToken').mockRejectedValue(new SessionExpiredError())
+
+    expect(await getHistory('conv-1')).toEqual({ error: SESSION_EXPIRED_MESSAGE })
+  })
+
+  it('asks for the history with the token in the header', async () => {
+    signedIn()
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ conversationId: 'conv-1', messages: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getHistory('conv-1')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/chat/conv-1/history')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer stored-token')
   })
 })

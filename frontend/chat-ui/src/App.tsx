@@ -4,6 +4,7 @@ import { ChatWindow } from './components/ChatWindow'
 import { LoginPage } from './components/LoginPage'
 import { BillingPage } from './components/BillingPage'
 import { authService } from './services/authService'
+import { removeConversationFromUrl } from './services/conversationUrl'
 
 const theme = createTheme({
   palette: {
@@ -43,6 +44,7 @@ function App() {
    */
   function endSession() {
     authService.logout()
+    removeConversationFromUrl()
     setIsAuthenticated(false)
   }
 

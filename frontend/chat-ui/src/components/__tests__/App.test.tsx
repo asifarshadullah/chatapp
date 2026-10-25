@@ -20,6 +20,11 @@ vi.mock('../../services/authService', () => ({
   },
 }))
 
+vi.mock('../../services/chatApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/chatApi')>()),
+  getHistory: vi.fn().mockResolvedValue({ messages: [] }),
+}))
+
 vi.mock('../../services/billingService', () => ({
   billingService: {
     getPlans: vi.fn().mockResolvedValue([]),
@@ -29,8 +34,15 @@ vi.mock('../../services/billingService', () => ({
   },
 }))
 
+const SAVED_ID = '3f2c1d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
+
+function conversationInUrl() {
+  return new URLSearchParams(window.location.search).get('conversation')
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  window.history.replaceState(null, '', '/')
   vi.mocked(authService.getValidToken).mockResolvedValue('token')
   vi.mocked(authService.hasSession).mockReturnValue(false)
   vi.mocked(authService.restoreSession).mockResolvedValue(false)
@@ -201,4 +213,27 @@ it('does not attempt restoration when no session was established', () => {
 
   expect(authService.restoreSession).not.toHaveBeenCalled()
   expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
+})
+
+// ── The conversation in the URL ──────────────────────────────────────────────
+
+it('removes the conversation from the URL when the user signs out', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  window.history.replaceState(null, '', `/?conversation=${SAVED_ID}`)
+  render(<App />)
+
+  await userEvent.click(screen.getByRole('button', { name: /logout/i }))
+
+  await waitFor(() => expect(screen.getByLabelText(/email/i)).toBeInTheDocument())
+  expect(conversationInUrl()).toBeNull()
+})
+
+it('keeps the conversation in the URL when the session ends by itself', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  vi.mocked(authService.getValidToken).mockRejectedValue(new SessionExpiredError())
+  window.history.replaceState(null, '', `/?conversation=${SAVED_ID}`)
+  render(<App />)
+
+  await waitFor(() => expect(screen.getByLabelText(/email/i)).toBeInTheDocument())
+  expect(conversationInUrl()).toBe(SAVED_ID)
 })
