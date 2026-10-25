@@ -1,6 +1,6 @@
 # ChatApp — Real-time AI Chat Application
 
-A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, and a modern real-time stack. Features word-by-word streaming responses from a local LLM, JWT/OAuth authentication, role-based authorization with permission policies, and Stripe billing — all separated into independent bounded contexts.
+A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, and a modern real-time stack. Features word-by-word streaming responses from any OpenAI-compatible model (a local Ollama model in development, Groq when deployed), JWT/OAuth authentication, role-based authorization with permission policies, and Stripe billing — all separated into independent bounded contexts.
 
 ![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)
 ![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
@@ -18,7 +18,9 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 
 - **Real-time streaming** — word-by-word LLM responses as server-sent events over one HTTP request
 - **Conversation links** — the open conversation lives in the URL (`?conversation=<id>`), so a reload, a new tab or a bookmark reopens it with its history
-- **Local LLM integration** — Ollama-backed AI provider with a swappable `IAiProvider` interface
+- **Any OpenAI-compatible model** — one provider for the chat completions API: Ollama locally, Groq when deployed, and others by configuration alone
+- **Settings** — a gear button opens a Settings dialog whose Model dropdown lists the models this deployment offers; the choice is remembered in the browser
+- **Fair use** — each user may send 50 messages per UTC day, so no one can use up a shared model allowance
 - **Authentication** — JWT access tokens and Google OAuth 2.0
 - **Authorization** — role-based permission policies (`CanChat`, `AdminOnly`, etc.) with 5-minute cached role lookups
 - **Billing** — Stripe Checkout, webhook-driven subscription lifecycle, plan-based feature gating
@@ -42,7 +44,7 @@ flowchart TB
 
     subgraph Chat["Chat context"]
         ChatApp["Chat.Application<br/>ChatService, IAiProvider"]
-        ChatInfra["Chat.Infrastructure<br/>MongoChatRepository, OllamaAiProvider"]
+        ChatInfra["Chat.Infrastructure<br/>MongoChatRepository, OpenAiCompatibleProvider"]
         ChatDom["Chat.Domain<br/>Conversation, ChatMessage"]
         ChatApp --> ChatDom
         ChatInfra --> ChatApp
@@ -79,20 +81,20 @@ sequenceDiagram
     participant Browser
     participant Api as ChatController
     participant Svc as ChatService
-    participant Ollama as OllamaAiProvider
+    participant Model as OpenAiCompatibleProvider
     participant Mongo as MongoDB
 
     Browser->>Api: POST /api/chat/messages {message, conversationId?}
-    Api->>Api: Check permission, content and plan
-    Api->>Svc: StreamResponseAsync(content, conversationId)
-    Svc->>Mongo: Check ownership, persist user message
+    Api->>Api: Check permission, content, model and plan
+    Api->>Svc: StreamResponseAsync(content, conversationId, model)
+    Svc->>Mongo: Check ownership, count today's message, persist it
     Svc->>Mongo: Load conversation history
-    Svc->>Ollama: StreamAsync(history)
-    Ollama-->>Svc: first token
+    Svc->>Model: StreamCompletionAsync(model, latest messages)
+    Model-->>Svc: first token
     Svc-->>Api: (conversationId, token)
     Api-->>Browser: 200 text/event-stream<br/>event: conversation, event: token
     loop Remaining tokens
-        Ollama-->>Svc: token
+        Model-->>Svc: token
         Svc-->>Api: (conversationId, token)
         Api-->>Browser: event: token
     end
@@ -110,7 +112,7 @@ sequenceDiagram
 | Frontend | React 19, TypeScript 5, Vite, MUI |
 | Database | MongoDB 7 (Docker Compose) |
 | Real-time | Server-sent events from an `IAsyncEnumerable` reply, read with `fetch` |
-| AI / LLM | Ollama (OllamaSharp 4.0) — local inference, swappable via `IAiProvider` |
+| AI / LLM | OpenAI .NET SDK against any chat completions API: Ollama locally, Groq (`openai/gpt-oss-120b`) when deployed |
 | Payments | Stripe (Stripe.net 45) — Checkout + webhooks |
 | Auth | JWT bearer tokens + Google OAuth 2.0 |
 | Authorization | ASP.NET Core policies + custom `IPermissionService` with memory cache |
@@ -127,7 +129,7 @@ backend/
 │   ├── Chat.Api/                     # Composition root — controllers, DI
 │   ├── Chat.Domain/                  # Conversation, ChatMessage entities
 │   ├── Chat.Application/             # ChatService, IAiProvider, DTOs
-│   ├── Chat.Infrastructure/          # MongoChatRepository, OllamaAiProvider
+│   ├── Chat.Infrastructure/          # MongoChatRepository, OpenAiCompatibleProvider, daily message counts
 │   ├── Chat.Identity.Domain/         # AppUser, ExternalLogin
 │   ├── Chat.Identity.Application/    # IdentityService, IPermissionService
 │   ├── Chat.Identity.Infrastructure/ # JwtTokenGenerator, MongoUserStore
@@ -173,7 +175,20 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. Register with email + password, then chat.
+Open http://localhost:5173. Register with email + password, then chat. The local model is the default; the gear button opens Settings, where the Model dropdown shows what is offered.
+
+To try Groq locally too, keep its key in the macOS Keychain and start the backend through `scripts/with-groq.sh`, which hands the key to that one command only. Groq then appears in the dropdown, while the local model stays the default:
+
+```bash
+# once: store the key (you are prompted for it; nothing is echoed or saved in your shell history)
+security add-generic-password -a "$USER" -s chatapp-groq-key -w
+
+# each time: run the backend, or the production image, with the key
+scripts/with-groq.sh dotnet run --project backend/src/Chat.Api
+scripts/with-groq.sh docker compose --profile app up --build
+```
+
+The first time, macOS may ask whether `security` may read the item; choose Always Allow. `dotnet user-secrets set "Ai:Models:groq:ApiKey" …` works too, but keeps the key in a plain JSON file in your home folder.
 
 ### Run the production image locally
 
@@ -184,7 +199,7 @@ ollama pull gemma3:4b
 docker compose --profile app up --build
 ```
 
-Open http://localhost:8080. Use Chrome or Firefox: the app runs in Production mode, so its refresh cookie is `Secure`, and Safari may not keep a `Secure` cookie on plain `http://localhost`. On Linux, start Ollama with `OLLAMA_HOST=0.0.0.0` so the container can reach it.
+Open http://localhost:8080. It offers the local model, and Groq too when compose runs through `scripts/with-groq.sh`. Use Chrome or Firefox: the app runs in Production mode, so its refresh cookie is `Secure`, and Safari may not keep a `Secure` cookie on plain `http://localhost`. On Linux, start Ollama with `OLLAMA_HOST=0.0.0.0` so the container can reach it.
 
 ![Sign-up form](docs/images/sign-up.png)
 
@@ -257,9 +272,9 @@ npx playwright test
 
 Four non-obvious decisions worth calling out. Each reflects a real trade-off rather than a copied template.
 
-### 1. `IAiProvider` abstraction in Application, `OllamaAiProvider` in Infrastructure
+### 1. `IAiProvider` abstraction in Application, `OpenAiCompatibleProvider` in Infrastructure
 
-The Application layer defines *what it needs* (`IAiProvider` with `StreamAsync(IReadOnlyList<ChatMessage>)`), and Infrastructure supplies the concrete implementation. Tests inject a `FakeAiProvider` that yields a predictable string; swapping Ollama for OpenAI, Anthropic, or Azure OpenAI would touch only one file in Infrastructure. This is dependency inversion applied to the fastest-moving part of the system — LLM provider churn.
+The Application layer defines *what it needs* (`IAiProvider.StreamCompletionAsync(model, history)`), and Infrastructure supplies the implementation: one provider for the OpenAI chat completions API, which Ollama, Groq, OpenRouter, Gemini and others all serve. Model options are configuration: each is a base URL, model and key, and an option is offered only when its key is set. So the image ships Groq without a key, Render supplies it, and the local model, defined only in development settings, can never appear on the live app. Each request carries only the latest 10 messages and caps the reply at 800 tokens, which keeps it inside a free tier's per-minute token limit. Tests inject a `FakeAiProvider`, and the provider itself is tested against a fake HTTP handler that replays a recorded event stream.
 
 ### 2. Three bounded contexts: Chat / Identity / Billing
 
