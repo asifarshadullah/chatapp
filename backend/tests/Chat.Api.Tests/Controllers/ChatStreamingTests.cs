@@ -331,7 +331,45 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
         return conversation.Id;
     }
 
-    // ── The model's own limit ────────────────────────────────────────────────
+    // ── The daily limit and the model's own limit ────────────────────────────
+
+    [Fact]
+    public async Task PostMessage_OverTheDailyLimit_IsRefusedBeforeTheStream()
+    {
+        await using var factory = new ChatApiFactory();
+        var client = factory.CreateClient();
+        factory.Quota.Limit = 50;
+        for (var i = 0; i < 50; i++)
+        {
+            using var accepted = await EventStream.PostMessageAsync(client, new { message = "Hi" }, user: Alice);
+            await EventStream.ReadAllEventsAsync(accepted);
+        }
+        var createdBefore = factory.Repository.ConversationsCreated;
+
+        using var response = await EventStream.PostMessageAsync(client, new { message = "One more" }, user: Alice);
+
+        await ShouldBeRefused(response, HttpStatusCode.TooManyRequests,
+            "You have reached today's limit of 50 messages. It resets at midnight UTC.");
+        factory.Repository.ConversationsCreated.Should().Be(createdBefore);
+    }
+
+    [Fact]
+    public async Task PostMessage_WithAConfiguredLimitOfThree_RefusesTheFourth()
+    {
+        await using var factory = new ChatApiFactory();
+        var client = factory.CreateClient();
+        factory.Quota.Limit = 3;
+
+        var statuses = new List<HttpStatusCode>();
+        for (var i = 0; i < 4; i++)
+        {
+            using var response = await EventStream.PostMessageAsync(client, new { message = "Hi" }, user: Bob);
+            statuses.Add(response.StatusCode);
+            await response.Content.LoadIntoBufferAsync();
+        }
+
+        statuses.Should().Equal(HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests);
+    }
 
     [Fact]
     public async Task PostMessage_WhenTheModelServiceIsAtItsRateLimit_AnswersServiceUnavailable()

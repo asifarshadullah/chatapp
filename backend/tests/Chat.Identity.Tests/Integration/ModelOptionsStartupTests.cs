@@ -99,6 +99,16 @@ public class ModelOptionsStartupTests
     }
 
     [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    public void ADailyMessageLimitThatIsNotPositive_RefusesToStart(string limit)
+    {
+        var act = () => Start("Development", ("Chat:DailyMessageLimit", limit));
+
+        act.Should().Throw<Exception>().WithMessage("*Chat:DailyMessageLimit*");
+    }
+
+    [Theory]
     [InlineData("Ai:MaxHistoryMessages")]
     [InlineData("Ai:MaxReplyTokens")]
     public void ABoundThatIsNotPositive_RefusesToStart(string key)

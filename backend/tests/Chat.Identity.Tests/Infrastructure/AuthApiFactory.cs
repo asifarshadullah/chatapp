@@ -66,6 +66,11 @@ public class AuthApiFactory : WebApplicationFactory<Program>
             if (aiDescriptor is not null) services.Remove(aiDescriptor);
             services.AddSingleton<IAiProvider, FakeAiProvider>();
 
+            // The daily limit has its own tests; here it must never get in the way.
+            var quotaDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IDailyMessageQuota));
+            if (quotaDescriptor is not null) services.Remove(quotaDescriptor);
+            services.AddSingleton<IDailyMessageQuota, UnlimitedDailyMessageQuota>();
+
             // Replace real IdentityService with controllable fake
             var idDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IIdentityService));
             if (idDescriptor is not null) services.Remove(idDescriptor);
@@ -264,6 +269,12 @@ public class FakeAiProvider : IAiProvider
         yield return "Fake AI response";
         await Task.Yield();
     }
+}
+
+public class UnlimitedDailyMessageQuota : IDailyMessageQuota
+{
+    public int Limit => int.MaxValue;
+    public Task<bool> TryConsumeAsync(Guid userId, CancellationToken ct = default) => Task.FromResult(true);
 }
 
 public class StubSubscriptionRepository : ISubscriptionRepository

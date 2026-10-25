@@ -15,6 +15,7 @@ using Chat.Identity.Infrastructure.Services;
 using Chat.Identity.Infrastructure.Stores;
 using Chat.Infrastructure.AI;
 using Chat.Infrastructure.Configuration;
+using Chat.Infrastructure.Quota;
 using Chat.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -56,6 +57,17 @@ builder.Services.AddOptions<AiSettings>()
 builder.Services.AddSingleton<IValidateOptions<AiSettings>, AiSettingsValidator>();
 builder.Services.AddSingleton<IModelCatalog, ModelCatalog>();
 builder.Services.AddSingleton<IAiProvider, OpenAiCompatibleProvider>();
+
+// One user must not be able to use up a model allowance that every user shares.
+builder.Services.AddOptions<ChatSettings>()
+    .Bind(builder.Configuration.GetSection("Chat"))
+    .Validate(s => s.DailyMessageLimit > 0, "Chat:DailyMessageLimit must be greater than zero.")
+    .ValidateOnStart();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IDailyMessageQuota>(sp => new MongoDailyMessageQuota(
+    sp.GetRequiredService<IMongoDatabase>(),
+    sp.GetRequiredService<IOptions<ChatSettings>>().Value.DailyMessageLimit,
+    sp.GetRequiredService<TimeProvider>()));
 
 // Application layer services
 builder.Services.AddScoped<IChatService, ChatService>();
@@ -193,11 +205,12 @@ app.MapFallbackToFile("index.html", uiFiles);
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
 app.MapFallback("/auth/{**rest}", () => Results.NotFound());
 
-// Seed default roles into MongoDB if the collection is empty
+// Seed default roles if the collection is empty, and let old daily message counts expire
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IMongoDatabase>();
     await RoleSeeder.SeedAsync(db);
+    await MongoDailyMessageQuota.EnsureIndexesAsync(db);
 }
 
 app.Run();

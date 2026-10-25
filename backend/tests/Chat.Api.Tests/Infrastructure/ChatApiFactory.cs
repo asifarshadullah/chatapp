@@ -25,6 +25,9 @@ public class ChatApiFactory : WebApplicationFactory<Program>
     /// <summary>The repository every request uses, exposed so tests can count conversations.</summary>
     public CountingChatRepository Repository => Services.GetRequiredService<CountingChatRepository>();
 
+    /// <summary>The daily message counter every request uses, so a test can set a limit.</summary>
+    public InMemoryDailyMessageQuota Quota => (InMemoryDailyMessageQuota)Services.GetRequiredService<IDailyMessageQuota>();
+
     /// <summary>The fake AI model every request uses, exposed so tests can count its calls.</summary>
     public FakeAiProvider Ai => (FakeAiProvider)Services.GetRequiredService<IAiProvider>();
 
@@ -47,6 +50,12 @@ public class ChatApiFactory : WebApplicationFactory<Program>
             if (aiDescriptor is not null)
                 services.Remove(aiDescriptor);
             services.AddSingleton<IAiProvider, FakeAiProvider>();
+
+            // Count in memory instead of MongoDB, with no limit unless a test sets one.
+            var quotaDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IDailyMessageQuota));
+            if (quotaDescriptor is not null)
+                services.Remove(quotaDescriptor);
+            services.AddSingleton<IDailyMessageQuota, InMemoryDailyMessageQuota>();
 
             // Authenticate every request as the caller named in the test headers.
             services.AddAuthentication("TestScheme")
