@@ -82,8 +82,10 @@ The system SHALL answer a reply that fails before the model produces its first t
 ordinary error response, not an event stream. When the model service refused because its own
 rate limit was reached, the response SHALL carry 503 Service Unavailable and the error message
 "The demo has reached its model limit for now. Please try again later."; any other failure
-SHALL carry bad gateway and the error message "The reply could not be completed.". Neither
-SHALL disclose internal detail, and no reply SHALL be saved.
+SHALL carry bad gateway and the error message "The reply could not be completed.". A reply
+that ends without producing any token, for example because a reasoning model spent its whole
+length limit thinking, SHALL count as a failure of the second kind. Neither SHALL disclose
+internal detail, and no reply SHALL be saved.
 
 #### Scenario: The model fails before its first token
 
@@ -93,6 +95,13 @@ SHALL disclose internal detail, and no reply SHALL be saved.
 - **AND** the response reveals no internal detail
 - **AND** it is not an event stream and carries no conversation id or token
 - **AND** no reply is saved
+
+#### Scenario: The model produces no text
+
+- **WHEN** the model ends a reply without producing any token
+- **THEN** the system responds with bad gateway and the error "The reply could not be
+  completed."
+- **AND** it is not an event stream and carries no conversation id or token
 
 #### Scenario: The model service is at its rate limit
 

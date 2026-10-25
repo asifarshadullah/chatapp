@@ -131,18 +131,22 @@ public class ChatController : ControllerBase
             return Problem(detail: ReplyFailedMessage, statusCode: StatusCodes.Status502BadGateway);
         }
 
+        // A reasoning model can spend its whole length limit thinking and send no text at all.
+        if (!hasFirst)
+        {
+            _logger.LogWarning("The model ended the reply without producing any text");
+            return Problem(detail: ReplyFailedMessage, statusCode: StatusCodes.Status502BadGateway);
+        }
+
         var stream = EventStreamWriter.Start(Response);
         try
         {
-            if (hasFirst)
+            await stream.WriteAsync("conversation", items.Current.ConversationId, cancellationToken);
+            do
             {
-                await stream.WriteAsync("conversation", items.Current.ConversationId, cancellationToken);
-                do
-                {
-                    await stream.WriteAsync("token", items.Current.Token, cancellationToken);
-                }
-                while (await items.MoveNextAsync());
+                await stream.WriteAsync("token", items.Current.Token, cancellationToken);
             }
+            while (await items.MoveNextAsync());
             await stream.WriteAsync("done", new { }, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
