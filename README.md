@@ -17,6 +17,7 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 ## Features
 
 - **Real-time streaming** — word-by-word LLM responses as server-sent events over one HTTP request
+- **Conversation links** — the open conversation lives in the URL (`?conversation=<id>`), so a reload, a new tab or a bookmark reopens it with its history
 - **Local LLM integration** — Ollama-backed AI provider with a swappable `IAiProvider` interface
 - **Authentication** — JWT access tokens and Google OAuth 2.0
 - **Authorization** — role-based permission policies (`CanChat`, `AdminOnly`, etc.) with 5-minute cached role lookups
@@ -94,7 +95,7 @@ sequenceDiagram
         Svc-->>Api: (conversationId, token)
         Api-->>Browser: event: token
     end
-    Svc->>Mongo: Persist complete assistant message
+    Svc->>Mongo: Persist assistant message (also when stopped part-way)
     Api-->>Browser: event: done
 ```
 
@@ -249,7 +250,7 @@ Instead of one monolithic `Chat.Domain`, each concern is its own independent con
 
 ### 3. Server-sent events over one request per reply
 
-Each message is a `POST /api/chat/messages` whose response streams the reply as server-sent events: the conversation id, then each token, then an end marker. The traffic is a request with a streamed response, so it travels as one: the token rides in the `Authorization` header like every other call, refusals are ordinary 400/403/404 responses sent before the stream starts, closing the request stops the model, and any instance can serve any reply. `ChatService.StreamResponseAsync` stays an `IAsyncEnumerable<(Guid, string)>`, and the controller only frames and flushes it. This replaced a SignalR hub whose persistent connection the app never needed; [ADR 0002](docs/architecture/decisions/0002-stream-chat-replies-over-sse.md) records why.
+Each message is a `POST /api/chat/messages` whose response streams the reply as server-sent events: the conversation id, then each token, then an end marker. The traffic is a request with a streamed response, so it travels as one: the token rides in the `Authorization` header like every other call, refusals are ordinary 400/403/404 responses sent before the stream starts, closing the request stops the model, and any instance can serve any reply. A reply that stops part-way, because the caller left or the model failed, is saved with what was produced, so reloading mid-reply keeps it. `ChatService.StreamResponseAsync` stays an `IAsyncEnumerable<(Guid, string)>`, and the controller only frames and flushes it. This replaced a SignalR hub whose persistent connection the app never needed; [ADR 0002](docs/architecture/decisions/0002-stream-chat-replies-over-sse.md) records why.
 
 ### 4. Feature gating via `IPlanFeatureService` in `Chat.Billing.Application`
 
