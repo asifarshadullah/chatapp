@@ -55,6 +55,7 @@ public class ChatController : ControllerBase
     /// <response code="400">If the message is empty or too long, whatever conversation it names.</response>
     /// <response code="403">If the caller's role does not grant conversation:create, or their plan does not include chat.</response>
     /// <response code="404">If the conversation does not exist or is not the caller's.</response>
+    /// <response code="429">If the caller has already sent today's allowed number of messages.</response>
     /// <response code="502">If the model fails before its first token.</response>
     /// <response code="503">If the model service is at its rate limit before the first token.</response>
     [HttpPost("messages")]
@@ -63,6 +64,7 @@ public class ChatController : ControllerBase
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status502BadGateway)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SendMessage(
@@ -94,6 +96,12 @@ public class ChatController : ControllerBase
         {
             // Same answer whether the conversation is missing or someone else's.
             return Problem(detail: "Conversation not found.", statusCode: StatusCodes.Status404NotFound);
+        }
+        catch (DailyMessageLimitReachedException ex)
+        {
+            return Problem(
+                detail: $"You have reached today's limit of {ex.Limit} messages. It resets at midnight UTC.",
+                statusCode: StatusCodes.Status429TooManyRequests);
         }
         catch (ModelRateLimitedException ex)
         {

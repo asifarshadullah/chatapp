@@ -20,13 +20,15 @@ public class ChatServiceTests
 
     private readonly FakeChatRepository _repository;
     private readonly FakeAiProvider _aiProvider;
+    private readonly FakeQuota _quota;
     private readonly ChatService _sut;
 
     public ChatServiceTests()
     {
         _repository = new FakeChatRepository();
         _aiProvider = new FakeAiProvider();
-        _sut = new ChatService(_repository, _aiProvider);
+        _quota = new FakeQuota();
+        _sut = new ChatService(_repository, _aiProvider, _quota);
     }
 
     // ── StreamResponseAsync ─────────────────────────────────────────────────
@@ -238,6 +240,78 @@ public class ChatServiceTests
         _repository.ConversationCount.Should().Be(1);
     }
 
+    // ── The daily message limit ─────────────────────────────────────────────
+
+    [Fact]
+    public async Task StreamResponseAsync_OverTheDailyLimit_SavesNothingAndAsksNoModel()
+    {
+        _quota.Allow = false;
+
+        var act = async () =>
+        {
+            await foreach (var _ in _sut.StreamResponseAsync("Hi", UserId)) { }
+        };
+
+        var thrown = await act.Should().ThrowAsync<DailyMessageLimitReachedException>();
+        thrown.Which.Limit.Should().Be(FakeQuota.LimitValue);
+        _repository.ConversationCount.Should().Be(0, "a refused first message must leave no empty conversation");
+        _aiProvider.ReceivedHistory.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_OverTheDailyLimit_InAnExistingConversation_SavesNothing()
+    {
+        var conversationId = await StartConversationAsync("Hello", UserId);
+        var before = (await _sut.GetHistoryAsync(conversationId, UserId))!.Messages.Count;
+        _quota.Allow = false;
+
+        var act = async () =>
+        {
+            await foreach (var _ in _sut.StreamResponseAsync("Again", UserId, conversationId)) { }
+        };
+
+        await act.Should().ThrowAsync<DailyMessageLimitReachedException>();
+        (await _sut.GetHistoryAsync(conversationId, UserId))!.Messages.Should().HaveCount(before);
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_IntoAnotherUsersConversation_DoesNotCountTowardsTheLimit()
+    {
+        var owners = await StartConversationAsync("Mine", UserId);
+        var consumedBefore = _quota.Consumed;
+
+        var act = async () =>
+        {
+            await foreach (var _ in _sut.StreamResponseAsync("Intruder", OtherUserId, owners)) { }
+        };
+
+        await act.Should().ThrowAsync<ConversationNotFoundException>();
+        _quota.Consumed.Should().Be(consumedBefore);
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_AnAcceptedMessage_CountsOnce()
+    {
+        await StartConversationAsync("Hello", UserId);
+
+        _quota.Consumed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_AMessageThatFailsAtTheModel_StillCounts()
+    {
+        _aiProvider.ThrowAfterTokens = new InvalidOperationException("model down");
+        _aiProvider.Tokens = [];
+
+        var act = async () =>
+        {
+            await foreach (var _ in _sut.StreamResponseAsync("Hi", UserId)) { }
+        };
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        _quota.Consumed.Should().Be(1);
+    }
+
     [Fact]
     public async Task StreamResponseAsync_PassesTheModelOptionToTheProvider()
     {
@@ -330,6 +404,21 @@ public class ChatServiceTests
                 throw ThrowAfterTokens;
             if (WaitForCancellationAfterTokens)
                 await Task.Delay(Timeout.Infinite, ct);
+        }
+    }
+
+    private sealed class FakeQuota : IDailyMessageQuota
+    {
+        public const int LimitValue = 7;
+
+        public bool Allow { get; set; } = true;
+        public int Consumed { get; private set; }
+        public int Limit => LimitValue;
+
+        public Task<bool> TryConsumeAsync(Guid userId, CancellationToken ct = default)
+        {
+            Consumed++;
+            return Task.FromResult(Allow);
         }
     }
 

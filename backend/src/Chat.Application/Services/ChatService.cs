@@ -15,14 +15,16 @@ public class ChatService : IChatService
 {
     private readonly IChatRepository _repository;
     private readonly IAiProvider _aiProvider;
+    private readonly IDailyMessageQuota _quota;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ChatService"/>.
     /// </summary>
-    public ChatService(IChatRepository repository, IAiProvider aiProvider)
+    public ChatService(IChatRepository repository, IAiProvider aiProvider, IDailyMessageQuota quota)
     {
         _repository = repository;
         _aiProvider = aiProvider;
+        _quota = quota;
     }
 
     /// <inheritdoc/>
@@ -36,10 +38,17 @@ public class ChatService : IChatService
         var userMessage = new ChatMessage(content, MessageRole.User);
         RequireUser(userId);
 
-        var conversation = conversationId.HasValue
+        var existing = conversationId.HasValue
             ? await _repository.GetConversationAsync(conversationId.Value, userId, ct)
               ?? throw new ConversationNotFoundException(conversationId.Value)
-            : await _repository.CreateConversationAsync(userId, ct);
+            : null;
+
+        // Counted only once the message is accepted, and before anything is created or saved,
+        // so a refused message leaves nothing behind.
+        if (!await _quota.TryConsumeAsync(userId, ct))
+            throw new DailyMessageLimitReachedException(_quota.Limit);
+
+        var conversation = existing ?? await _repository.CreateConversationAsync(userId, ct);
 
         await _repository.AddMessageAsync(conversation.Id, userId, userMessage, ct);
 
