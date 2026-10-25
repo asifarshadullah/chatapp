@@ -126,6 +126,7 @@ public class ChatAccessTests : IClassFixture<AuthApiFactory>
 
         var response = await client.PostAsync("/chatHub/negotiate?negotiateVersion=1", null);
 
-        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        // Any path outside the API is a page of the app, which answers only GET, hence 405.
+        response.StatusCode.Should().BeOneOf(HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed);
     }
 }
