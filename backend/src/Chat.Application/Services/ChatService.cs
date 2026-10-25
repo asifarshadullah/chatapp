@@ -30,6 +30,7 @@ public class ChatService : IChatService
         string content,
         Guid userId,
         Guid? conversationId = null,
+        string? modelId = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         var userMessage = new ChatMessage(content, MessageRole.User);
@@ -49,7 +50,7 @@ public class ChatService : IChatService
         var reply = new StringBuilder();
         try
         {
-            await foreach (var token in _aiProvider.StreamCompletionAsync(updated.Messages, ct))
+            await foreach (var token in _aiProvider.StreamCompletionAsync(modelId, updated.Messages, ct))
             {
                 reply.Append(token);
                 yield return (conversation.Id, token);

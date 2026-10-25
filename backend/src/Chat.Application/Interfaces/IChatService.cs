@@ -16,6 +16,7 @@ public interface IChatService
         string content,
         Guid userId,
         Guid? conversationId = null,
+        string? modelId = null,
         CancellationToken ct = default);
 
     /// <summary>

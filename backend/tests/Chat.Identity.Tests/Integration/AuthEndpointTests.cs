@@ -8,7 +8,7 @@ namespace Chat.Identity.Tests.Integration;
 
 /// <summary>
 /// Integration tests for auth endpoints. Uses AuthApiFactory (FakeIdentityService + InMemory repos)
-/// so tests run without MongoDB, Ollama, or real JWT keys.
+/// so tests run without MongoDB, a model service, or real JWT keys.
 /// </summary>
 public class AuthEndpointTests : IClassFixture<AuthApiFactory>
 {

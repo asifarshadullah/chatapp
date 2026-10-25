@@ -239,6 +239,14 @@ public class ChatServiceTests
     }
 
     [Fact]
+    public async Task StreamResponseAsync_PassesTheModelOptionToTheProvider()
+    {
+        await foreach (var _ in _sut.StreamResponseAsync("Hi", UserId, modelId: "groq")) { }
+
+        _aiProvider.ReceivedModelId.Should().Be("groq");
+    }
+
+    [Fact]
     public async Task GetHistoryAsync_ForAnotherUsersConversation_ReturnsNull()
     {
         var owners = await StartConversationAsync("Mine", UserId);
@@ -301,13 +309,16 @@ public class ChatServiceTests
     {
         public IEnumerable<string> Tokens { get; set; } = ["AI response"];
         public IReadOnlyList<ChatMessage>? ReceivedHistory { get; set; }
+        public string? ReceivedModelId { get; set; }
         public Exception? ThrowAfterTokens { get; set; }
         public bool WaitForCancellationAfterTokens { get; set; }
 
         public async IAsyncEnumerable<string> StreamCompletionAsync(
+            string? modelId,
             IReadOnlyList<ChatMessage> history,
             [EnumeratorCancellation] CancellationToken ct = default)
         {
+            ReceivedModelId = modelId;
             ReceivedHistory = history;
             foreach (var token in Tokens)
             {

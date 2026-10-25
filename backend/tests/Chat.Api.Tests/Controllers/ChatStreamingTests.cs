@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using Chat.Api.Tests.Infrastructure;
 using Chat.Application.DTOs;
+using Chat.Application.Exceptions;
 using Chat.Domain.Entities;
 using Chat.Domain.Enums;
 using FluentAssertions;
@@ -328,6 +329,29 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
         await _factory.Repository.AddMessageAsync(conversation.Id, user, new ChatMessage("Mine", MessageRole.User));
         await _factory.Repository.AddMessageAsync(conversation.Id, user, new ChatMessage("Earlier reply", MessageRole.Assistant));
         return conversation.Id;
+    }
+
+    // ── The model's own limit ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task PostMessage_WhenTheModelServiceIsAtItsRateLimit_AnswersServiceUnavailable()
+    {
+        await using var factory = new ChatApiFactory();
+        factory.Ai.Script = _ => RateLimited();
+
+        using var response = await EventStream.PostMessageAsync(factory.CreateClient(), new { message = "Hi" });
+
+        await ShouldBeRefused(response, HttpStatusCode.ServiceUnavailable,
+            "The demo has reached its model limit for now. Please try again later.");
+    }
+
+    private static async IAsyncEnumerable<string> RateLimited()
+    {
+        await Task.Yield();
+        throw new ModelRateLimitedException(new InvalidOperationException("429 from the service"));
+#pragma warning disable CS0162 // An iterator needs a yield to be one.
+        yield break;
+#pragma warning restore CS0162
     }
 
     private async Task ShouldHoldOnlyItsFirstExchange(Guid alices)
