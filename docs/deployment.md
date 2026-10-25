@@ -64,9 +64,11 @@ Deploy an earlier commit. Either:
    | `Jwt__Secret` | a new secret, for example `openssl rand -base64 48 \| tr -d '\n'`. The app refuses to start without one of at least 32 bytes. |
    | `Ai__Models__groq__ApiKey` | a Groq API key from https://console.groq.com/keys. The app refuses to start without it, because it is then offered no model. |
 
-   A trailing newline is ignored. If a deploy fails with "no model option is offered" or names
-   `Jwt:Secret` although the files exist, the app could not read them. Put the same values in
-   environment variables of the same names instead: they work too, just less tightly held.
+   Write each value on one line. One trailing line ending is dropped, and the Groq key is
+   trimmed entirely, so a stray `\r` cannot break it; other values keep any extra whitespace.
+   If a deploy fails at startup with `UnauthorizedAccessException` on `/etc/secrets`, the app's
+   non-root user cannot read the files. Put the same values in environment variables of the same
+   names instead: they work too, just less tightly held.
 
 6. **Environment variables**, which are not secret:
 
