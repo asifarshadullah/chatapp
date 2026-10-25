@@ -166,12 +166,28 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// The image puts the built UI in wwwroot. Vite hashes everything under /assets, so those never
+// change; anything else, index.html above all, is revalidated so a deploy reaches the browser.
+var uiFiles = new StaticFileOptions
+{
+    OnPrepareResponse = file => file.Context.Response.Headers.CacheControl =
+        file.Context.Request.Path.StartsWithSegments("/assets")
+            ? "public, max-age=31536000, immutable"
+            : "no-cache"
+};
+app.UseStaticFiles(uiFiles);
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Any other path is a page of the app, but a mistyped API call must still fail as one.
+app.MapFallbackToFile("index.html", uiFiles);
+app.MapFallback("/api/{**rest}", () => Results.NotFound());
+app.MapFallback("/auth/{**rest}", () => Results.NotFound());
 
 // Seed default roles into MongoDB if the collection is empty
 using (var scope = app.Services.CreateScope())
