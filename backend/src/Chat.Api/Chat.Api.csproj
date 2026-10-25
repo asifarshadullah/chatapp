@@ -8,6 +8,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- It holds the local signing secret and database password, which have no place in the image. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Chat.Application\Chat.Application.csproj" />
     <ProjectReference Include="..\Chat.Infrastructure\Chat.Infrastructure.csproj" />
     <ProjectReference Include="..\Chat.Identity.Application\Chat.Identity.Application.csproj" />
