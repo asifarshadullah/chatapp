@@ -53,20 +53,42 @@ Deploy an earlier commit. Either:
 2. Instance type **Free**.
 3. **Health Check Path:** `/healthz`.
 4. **Auto-Deploy:** off. Deploys come only from the workflow.
-5. **Environment variables:**
+5. **Secret Files** (Environment → Secret Files → Add Secret File). Each file is named after
+   the setting it holds, and contains only the value. Render mounts them at `/etc/secrets`,
+   where the app reads them, and a file wins over an environment variable of the same name.
+   Unlike environment variables, they stay out of the process environment.
+
+   | File name | Contents |
+   |---|---|
+   | `MongoDB__ConnectionString` | the Atlas connection string |
+   | `Jwt__Secret` | a new secret, for example `openssl rand -base64 48 \| tr -d '\n'`. The app refuses to start without one of at least 32 bytes. |
+   | `Ai__Models__groq__ApiKey` | a Groq API key from https://console.groq.com/keys. The app refuses to start without it, because it is then offered no model. |
+
+   A trailing newline is ignored. If a deploy fails with "no model option is offered" or names
+   `Jwt:Secret` although the files exist, the app could not read them. Put the same values in
+   environment variables of the same names instead: they work too, just less tightly held.
+
+6. **Environment variables**, which are not secret:
 
    | Name | Value |
    |---|---|
    | `PORT` | `8080` (the port the app listens on) |
-   | `MongoDB__ConnectionString` | the Atlas connection string |
    | `MongoDB__DatabaseName` | `chatapp` |
-   | `Jwt__Secret` | a new secret, for example `openssl rand -base64 64`. The app refuses to start without one of at least 32 bytes. |
-   | `Ollama__BaseUrl`, `Ollama__Model` | until #29 adds a hosted model, chat has no model to reach |
+
+   Everything else about the Groq option (`https://api.groq.com/openai/v1`, `openai/gpt-oss-120b`,
+   reasoning effort `low`) ships in `appsettings.json`. These are optional:
+
+   | Name | Default | Why you might set it |
+   |---|---|---|
+   | `Ai__Models__groq__Model` | `openai/gpt-oss-120b` | Groq retired the model; check https://console.groq.com/docs/deprecations |
+   | `Chat__DailyMessageLimit` | `50` | each user's messages per UTC day; lower it if the shared Groq allowance runs out |
+   | `Ai__MaxHistoryMessages` | `10` | how many of a conversation's latest messages each request carries |
+   | `Ai__MaxReplyTokens` | `800` | the longest reply, in tokens |
 
    Stripe is left unset until #30, so upgrading a plan fails. Google sign-in is left unset, and
    `/auth/google` answers 404.
 
-6. **Settings → Deploy Hook:** copy the URL. It is a credential: anyone holding it can redeploy.
+7. **Settings → Deploy Hook:** copy the URL. It is a credential: anyone holding it can redeploy.
    Regenerate it here if it leaks.
 
 ### 4. GitHub
@@ -80,10 +102,36 @@ Deploy an earlier commit. Either:
 
 Run **Deploy** again. It finishes when `/healthz` on the live URL names the commit.
 
+Then sign up on the live URL and send one message. The app can only check that a key is set, not
+that Groq accepts it, so this first reply is what shows the key works.
+
 ## Things to know
 
 - The free instance sleeps after 15 minutes without traffic. The first request after that waits
   about a minute.
 - The image is the one `docker compose --profile app up --build` runs locally, so a problem in the
   image shows up on a laptop first.
-- Don't share the URL until #10, #15 and #29 are done.
+- Groq's free tier allows about 8,000 tokens a minute and 200,000 a day for `gpt-oss-120b`, shared
+  by every user: roughly 100 messages a day in all. When it runs out, users see "The demo has
+  reached its model limit for now. Please try again later." until Groq's window resets.
+- The deployed app offers only Groq. The local model is defined only in
+  `appsettings.Development.json`, which is not in the image.
+- Don't share the URL until #10 and #15 are verified.
+
+Secrets are held in two places only: Render, for the live app, and your Mac's Keychain, for
+local runs. GitHub holds only the deploy hook URL. CI uses a fake model, and Deploy never needs
+the Groq key.
+
+## Moving from the Ollama settings
+
+An image built before #29 read `Ollama__BaseUrl` and `Ollama__Model`, and its secrets from
+environment variables. Before deploying a newer one:
+1. On Render, add the three Secret Files above: `Ai__Models__groq__ApiKey` with the Groq key, and
+   `Jwt__Secret` and `MongoDB__ConnectionString` with the values the environment variables hold
+   now.
+2. Run **Deploy** on `main`. Without the key the new image refuses to start, and Render keeps the
+   previous deploy running.
+3. Once it is green, delete the environment variables `Jwt__Secret`, `MongoDB__ConnectionString`,
+   `Ollama__BaseUrl` and `Ollama__Model`. The image then reads its secrets only from the files.
+   Deleting them before step 2 would break the running deploy, which still reads them.
+4. Sign in on the live app and send a message.
