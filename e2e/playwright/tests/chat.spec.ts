@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { test, expect } from '@playwright/test';
 import { ChatPage, STREAM_TIMEOUT } from './helpers/chat-page';
 
@@ -111,5 +112,57 @@ test.describe('Chat', () => {
     await chat.waitForStreamComplete();
 
     await expect(chat.getInput()).toBeEnabled();
+  });
+
+  // ── Reopening a conversation from its URL ────────────────────────────────
+
+  test('a reload reopens the conversation named in the URL', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+    await chat.sendAndAwaitReply('Say hello in three words.', 1);
+    await expect(page).toHaveURL(/[?&]conversation=[0-9a-f-]{36}/);
+    const reply = await chat.getAssistantMessages().first().innerText();
+
+    await page.reload();
+
+    await expect(chat.getUserMessages()).toHaveText(['Say hello in three words.']);
+    await expect(chat.getAssistantMessages()).toHaveText([reply]);
+  });
+
+  test('an unknown conversation in the URL is not found', async ({ page }) => {
+    await page.goto(`/?conversation=${randomUUID()}`);
+
+    await expect(page.getByText('Conversation not found.')).toBeVisible();
+    await expect(page).not.toHaveURL(/conversation=/);
+  });
+
+  test('new chat empties the window and the URL', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+    await chat.sendAndAwaitReply('Say hello in three words.', 1);
+
+    await page.getByRole('button', { name: 'New chat' }).click();
+
+    await expect(chat.getUserMessages()).toHaveCount(0);
+    await expect(page).not.toHaveURL(/conversation=/);
+  });
+
+  test('a reload during a reply keeps what was produced', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+    await chat.sendAndAwaitReply('Reply with the single word: ready', 1);
+    await chat.sendMessage('Count from one to fifty in words, one number per line.');
+    await chat.waitForAssistantResponse(2);
+
+    // The partial reply is saved after the server notices the reload, which can come after
+    // the reloaded page asks for history, so a later reload may be the one that shows it.
+    await expect(async () => {
+      await page.reload();
+      await expect(chat.getAssistantMessages()).toHaveCount(2, { timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    await expect(chat.getUserMessages().nth(1)).toHaveText(
+      'Count from one to fifty in words, one number per line.',
+    );
+    await expect(chat.getAssistantMessages().nth(1)).toHaveText(/\S/);
   });
 });
