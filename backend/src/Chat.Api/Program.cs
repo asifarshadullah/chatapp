@@ -67,7 +67,15 @@ builder.Services.AddScoped<IWebhookHandler, StripeWebhookHandler>();
 builder.Services.AddScoped<IPlanFeatureService, RealPlanFeatureService>();
 
 // ── Identity ──────────────────────────────────────────────────────────────────
-builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("Jwt"));
+// A secret anyone can read lets anyone forge a session. The old placeholder stays public in
+// the repo's history, and HMAC-SHA256 needs at least 32 bytes.
+const string oldJwtSecretPlaceholder = "REPLACE-WITH-A-SECURE-256-BIT-SECRET-IN-PRODUCTION";
+builder.Services.AddOptions<JwtSettings>()
+    .Bind(builder.Configuration.GetSection("Jwt"))
+    .Validate<IHostEnvironment>((s, env) => env.IsDevelopment()
+            || (Encoding.UTF8.GetByteCount(s.Secret) >= 32 && s.Secret != oldJwtSecretPlaceholder),
+        "Jwt:Secret must be set to at least 32 bytes, and not to the placeholder, outside Development.")
+    .ValidateOnStart();
 
 // Refresh-token policy. Registered as the Application-layer interface as well, so
 // IdentityService depends on the contract rather than on the Options type.
