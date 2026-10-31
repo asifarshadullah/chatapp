@@ -113,10 +113,11 @@ that conversation while its history is not shown.
 
 ### Requirement: New chat starts an empty conversation
 
-The chat SHALL offer a New chat action whenever it shows messages or an error, and SHALL
-make it unavailable while a reply is streaming. It SHALL clear the shown messages and any error and remove the id from the URL,
-so the next message starts a new conversation. The previous conversation SHALL stay
-reachable through its URL.
+The chat SHALL always show a New chat action at the top of the conversation sidebar. It SHALL
+be available whenever the chat shows messages or an error, and unavailable while the chat is
+empty with no error and while a reply is streaming. It SHALL clear the shown messages and
+any error and remove the id from the URL, so the next message starts a new conversation. The
+previous conversation SHALL stay reachable through its URL and the sidebar.
 
 #### Scenario: Starting a new chat
 
@@ -134,6 +135,11 @@ reachable through its URL.
 
 - **WHEN** a reply is streaming
 - **THEN** the New chat action is unavailable
+
+#### Scenario: New chat on an empty chat
+
+- **WHEN** the chat is empty and shows no error
+- **THEN** the New chat action is shown but unavailable
 
 ### Requirement: Signing out removes the conversation from the URL
 
