@@ -173,6 +173,36 @@ test.describe('Chat', () => {
     await expect(chat.getAssistantMessages()).toHaveCount(1);
   });
 
+  test('no message sits under a header button, from desktop to phone width', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+    await chat.sendAndAwaitReply(
+      'Reply with the single word: ready. This question is long on purpose, so that its bubble spans the chat.',
+      1,
+    );
+    const firstMessage = chat.getUserMessages().first();
+
+    for (const width of [1280, 1024, 390]) {
+      await page.setViewportSize({ width, height: 800 });
+      // Scrolled to the top of the list, where a header laid over it would cover the message.
+      await firstMessage.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      const message = (await firstMessage.boundingBox())!;
+
+      const names = ['Settings', 'Manage Plan', 'Logout', ...(width < 900 ? ['Open conversations'] : [])];
+      for (const name of names) {
+        const button = (await page.getByRole('button', { name, exact: true }).boundingBox())!;
+        const overlaps =
+          button.x < message.x + message.width &&
+          message.x < button.x + button.width &&
+          button.y < message.y + message.height &&
+          message.y < button.y + button.height;
+        expect(overlaps, `${name} overlaps the first message at ${width} px`).toBe(false);
+        expect(button.x, `${name} starts off screen at ${width} px`).toBeGreaterThanOrEqual(0);
+        expect(button.x + button.width, `${name} ends off screen at ${width} px`).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
   test('a reload during a reply keeps what was produced', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
