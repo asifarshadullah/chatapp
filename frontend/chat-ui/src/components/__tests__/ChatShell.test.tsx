@@ -121,7 +121,7 @@ describe('ChatShell', () => {
     render(<ChatShell />)
 
     expect(screen.queryByRole('list', { name: 'Conversations' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Open conversations' }))
+    await userEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Open conversations' }))
 
     expect(await within(await screen.findByRole('list', { name: 'Conversations' })).findByText('About monads')).toBeInTheDocument()
   })

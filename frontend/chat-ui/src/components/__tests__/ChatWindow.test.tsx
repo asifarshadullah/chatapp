@@ -195,6 +195,35 @@ describe('ChatWindow', () => {
     )
   })
 
+  // ── Header ───────────────────────────────────────────────────────────
+
+  it('keeps its buttons in a header, before an empty chat and before the messages', async () => {
+    mockStream(['Hi'])
+    render(<ChatWindow onLogout={vi.fn()} onManageBilling={vi.fn()} />)
+
+    const headerButtons = () => {
+      const header = screen.getByRole('banner')
+      return ['Settings', 'Manage Plan', 'Logout'].map((name) => within(header).getByRole('button', { name }))
+    }
+    expect(headerButtons()).toHaveLength(3)
+
+    await send('Hello')
+    expect(headerButtons()).toHaveLength(3)
+    const firstMessage = await screen.findByText('Hello')
+    expect(screen.getByRole('banner').compareDocumentPosition(firstMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('shows a menu button in the header only when it can open the conversations', async () => {
+    const onOpenConversations = vi.fn()
+    const { rerender } = render(<ChatWindow />)
+    expect(screen.queryByRole('button', { name: 'Open conversations' })).not.toBeInTheDocument()
+
+    rerender(<ChatWindow onOpenConversations={onOpenConversations} />)
+    await userEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Open conversations' }))
+
+    expect(onOpenConversations).toHaveBeenCalledOnce()
+  })
+
   // ── Cycle FA-CW1 — logout button ─────────────────────────────────────
 
   it('renders a logout button', () => {

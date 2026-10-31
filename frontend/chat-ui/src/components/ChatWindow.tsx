@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Box, Button, CircularProgress, IconButton, Typography, Alert } from '@mui/material'
+import MenuIcon from '@mui/icons-material/Menu'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import type { ChatMessage } from '../types/chat'
 import { streamMessage, getHistory, getModels, CONVERSATION_NOT_FOUND_MESSAGE } from '../services/chatApi'
@@ -29,6 +30,8 @@ interface ChatWindowProps {
   onCanStartNewChatChange?: (canStartNewChat: boolean) => void
   /** Called once a send has ended, however it ended, so the conversation list can follow. */
   onSendFinished?: () => void
+  /** Given when the conversations are hidden, so the header offers a button to open them. */
+  onOpenConversations?: () => void
 }
 
 type HistoryState = 'none' | 'loading' | 'failed'
@@ -41,6 +44,7 @@ export function ChatWindow({
   onStreamingChange,
   onCanStartNewChatChange,
   onSendFinished,
+  onOpenConversations,
 }: ChatWindowProps) {
   const [requested] = useState(conversationInUrl)
   const requestedIsValid = requested !== null && isConversationId(requested)
@@ -211,21 +215,28 @@ export function ChatWindow({
     onCanStartNewChatChange?.(canStartNewChat)
   }, [canStartNewChat, onCanStartNewChatChange])
 
-  const headerButtons = (
-    <Box sx={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 1, alignItems: 'center' }}>
-      <IconButton size="small" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
-        <SettingsOutlinedIcon fontSize="small" />
-      </IconButton>
-      {onManageBilling && (
-        <Button size="small" variant="outlined" onClick={onManageBilling}>
-          Manage Plan
-        </Button>
+  const header = (
+    <Box component="header" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 2, py: 1.5, flexShrink: 0 }}>
+      {onOpenConversations && (
+        <IconButton aria-label="Open conversations" onClick={onOpenConversations} size="small">
+          <MenuIcon fontSize="small" />
+        </IconButton>
       )}
-      {onLogout && (
-        <Button size="small" variant="outlined" onClick={onLogout}>
-          Logout
-        </Button>
-      )}
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', ml: 'auto' }}>
+        <IconButton size="small" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+          <SettingsOutlinedIcon fontSize="small" />
+        </IconButton>
+        {onManageBilling && (
+          <Button size="small" variant="outlined" onClick={onManageBilling}>
+            Manage Plan
+          </Button>
+        )}
+        {onLogout && (
+          <Button size="small" variant="outlined" onClick={onLogout}>
+            Logout
+          </Button>
+        )}
+      </Box>
       <SettingsDialog
         open={settingsOpen}
         models={models}
@@ -238,33 +249,34 @@ export function ChatWindow({
 
   if (messages.length === 0 && !error && historyState === 'none') {
     return (
-      <Box
-        sx={{
-          position: 'relative',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          height: '100vh',
-          gap: 4,
-          px: 2,
-        }}
-      >
-        {headerButtons}
-        <Typography
-          variant="h4"
-          sx={{ fontWeight: 400, color: 'text.primary', textAlign: 'center' }}
+      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        {header}
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            px: 2,
+          }}
         >
-          What's on the agenda today?
-        </Typography>
-        <ChatInput onSend={handleSend} isLoading={inputBlocked} />
+          <Typography
+            variant="h4"
+            sx={{ fontWeight: 400, color: 'text.primary', textAlign: 'center' }}
+          >
+            What's on the agenda today?
+          </Typography>
+          <ChatInput onSend={handleSend} isLoading={inputBlocked} />
+        </Box>
       </Box>
     )
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', position: 'relative' }}>
-      {headerButtons}
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {header}
       {historyState === 'loading' ? (
         <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <CircularProgress aria-label="loading conversation" />

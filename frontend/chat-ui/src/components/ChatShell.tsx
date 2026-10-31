@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Box, Drawer, IconButton, useMediaQuery, useTheme } from '@mui/material'
-import MenuIcon from '@mui/icons-material/Menu'
+import { Box, Drawer, useMediaQuery, useTheme } from '@mui/material'
 import { ChatWindow } from './ChatWindow'
 import { ConversationSidebar } from './ConversationSidebar'
 import { showConversationInUrl, removeConversationFromUrl } from '../services/conversationUrl'
@@ -72,17 +71,7 @@ export function ChatShell({ onLogout, onManageBilling, onSessionExpired }: ChatS
           {sidebar}
         </Drawer>
       )}
-      <Box sx={{ flex: 1, minWidth: 0, position: 'relative' }}>
-        {!isWide && (
-          <IconButton
-            aria-label="Open conversations"
-            onClick={() => setDrawerOpen(true)}
-            size="small"
-            sx={{ position: 'absolute', top: 12, left: 16, zIndex: 1 }}
-          >
-            <MenuIcon fontSize="small" />
-          </IconButton>
-        )}
+      <Box sx={{ flex: 1, minWidth: 0 }}>
         <ChatWindow
           key={chatKey}
           onLogout={onLogout}
@@ -92,6 +81,7 @@ export function ChatShell({ onLogout, onManageBilling, onSessionExpired }: ChatS
           onStreamingChange={setIsStreaming}
           onCanStartNewChatChange={setCanStartNewChat}
           onSendFinished={handleSendFinished}
+          onOpenConversations={isWide ? undefined : () => setDrawerOpen(true)}
         />
       </Box>
     </Box>
