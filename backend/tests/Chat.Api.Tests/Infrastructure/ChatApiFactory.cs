@@ -31,6 +31,9 @@ public class ChatApiFactory : WebApplicationFactory<Program>
     /// <summary>The fake AI model every request uses, exposed so tests can count its calls.</summary>
     public FakeAiProvider Ai => (FakeAiProvider)Services.GetRequiredService<IAiProvider>();
 
+    /// <summary>The fake title writer, so a test can make titles fail.</summary>
+    public FakeTitleGenerator Titles => (FakeTitleGenerator)Services.GetRequiredService<ITitleGenerator>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // A Groq key in the developer's user secrets must not change what the tests see.
@@ -50,6 +53,11 @@ public class ChatApiFactory : WebApplicationFactory<Program>
             if (aiDescriptor is not null)
                 services.Remove(aiDescriptor);
             services.AddSingleton<IAiProvider, FakeAiProvider>();
+
+            var titleDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(ITitleGenerator));
+            if (titleDescriptor is not null)
+                services.Remove(titleDescriptor);
+            services.AddSingleton<ITitleGenerator, FakeTitleGenerator>();
 
             // Count in memory instead of MongoDB, with no limit unless a test sets one.
             var quotaDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IDailyMessageQuota));
@@ -98,6 +106,9 @@ public class FakeAiProvider : IAiProvider
     /// <summary>Replaces the fixed reply. Set it only on a test's own factory, not a shared fixture.</summary>
     public Func<CancellationToken, IAsyncEnumerable<string>>? Script { get; set; }
 
+    public Task<string> CompleteAsync(string? modelId, string instructions, string content, int maxTokens, CancellationToken ct = default) =>
+        Task.FromResult("Fake title");
+
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         string? modelId,
         IReadOnlyList<ChatMessage> history,
@@ -117,6 +128,18 @@ public class FakeAiProvider : IAiProvider
         yield return " response";
         await Task.Yield();
     }
+}
+
+/// <summary>Writes a fixed title, or none when a test sets <see cref="Title"/> to null.</summary>
+public class FakeTitleGenerator : ITitleGenerator
+{
+    public const string DefaultTitle = "Test Title";
+
+    /// <summary>Set it only on a test's own factory, not a shared fixture.</summary>
+    public string? Title { get; set; } = DefaultTitle;
+
+    public Task<string?> GenerateAsync(string? modelId, string firstMessage, CancellationToken ct = default) =>
+        Task.FromResult(Title);
 }
 
 /// <summary>

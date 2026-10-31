@@ -267,6 +267,9 @@ public class FakeAiProvider : IAiProvider
 
     public int Calls => Volatile.Read(ref _calls);
 
+    public Task<string> CompleteAsync(string? modelId, string instructions, string content, int maxTokens, CancellationToken ct = default) =>
+        Task.FromResult("Fake title");
+
     public async IAsyncEnumerable<string> StreamCompletionAsync(
         string? modelId,
         IReadOnlyList<Chat.Domain.Entities.ChatMessage> history,

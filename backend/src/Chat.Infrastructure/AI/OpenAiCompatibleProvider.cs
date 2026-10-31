@@ -62,14 +62,7 @@ public class OpenAiCompatibleProvider : IAiProvider
         // Only the latest messages, so a request stays within a free tier's per-minute token limit.
         messages.AddRange(history.TakeLast(_settings.MaxHistoryMessages).Select(ToRequestMessage));
 
-        var options = new ChatCompletionOptions { MaxOutputTokenCount = _settings.MaxReplyTokens };
-        if (!string.IsNullOrEmpty(option.ReasoningEffort))
-        {
-            // Marked experimental by the SDK; the provider tests pin down the request it produces.
-#pragma warning disable OPENAI001
-            options.ReasoningEffortLevel = new ChatReasoningEffortLevel(option.ReasoningEffort);
-#pragma warning restore OPENAI001
-        }
+        var options = Options(option, _settings.MaxReplyTokens);
 
         await using var updates = client.CompleteChatStreamingAsync(messages, options, ct).GetAsyncEnumerator(ct);
         while (await MoveNextAsync(updates, option.ApiKey))
@@ -82,8 +75,37 @@ public class OpenAiCompatibleProvider : IAiProvider
         }
     }
 
-    // The service's error is logged by the caller, and some services echo the key they were sent,
-    // so it is rethrown with the key removed and without the original exception.
+    /// <inheritdoc/>
+    public async Task<string> CompleteAsync(
+        string? modelId, string instructions, string content, int maxTokens, CancellationToken ct = default)
+    {
+        var (client, option) = _clients[modelId ?? _settings.DefaultModel];
+        ChatMessage[] messages = [new SystemChatMessage(instructions), new UserChatMessage(content)];
+
+        try
+        {
+            ChatCompletion completion = await client.CompleteChatAsync(messages, Options(option, maxTokens), ct);
+            return string.Concat(completion.Content.Select(part => part.Text));
+        }
+        catch (ClientResultException ex)
+        {
+            throw WithoutKey(ex, option.ApiKey);
+        }
+    }
+
+    private static ChatCompletionOptions Options(ModelOption option, int maxTokens)
+    {
+        var options = new ChatCompletionOptions { MaxOutputTokenCount = maxTokens };
+        if (!string.IsNullOrEmpty(option.ReasoningEffort))
+        {
+            // Marked experimental by the SDK; the provider tests pin down the request it produces.
+#pragma warning disable OPENAI001
+            options.ReasoningEffortLevel = new ChatReasoningEffortLevel(option.ReasoningEffort);
+#pragma warning restore OPENAI001
+        }
+        return options;
+    }
+
     private static async Task<bool> MoveNextAsync(IAsyncEnumerator<StreamingChatCompletionUpdate> updates, string apiKey)
     {
         try
@@ -92,11 +114,16 @@ public class OpenAiCompatibleProvider : IAiProvider
         }
         catch (ClientResultException ex)
         {
-            var error = ex.Message.Replace(apiKey, "[key]", StringComparison.Ordinal);
-            if (ex.Status == 429)
-                throw new ModelRateLimitedException(error);
-            throw new ModelServiceException(ex.Status, error);
+            throw WithoutKey(ex, apiKey);
         }
+    }
+
+    // The service's error is logged by the caller, and some services echo the key they were sent,
+    // so it is rethrown with the key removed and without the original exception.
+    private static Exception WithoutKey(ClientResultException ex, string apiKey)
+    {
+        var error = ex.Message.Replace(apiKey, "[key]", StringComparison.Ordinal);
+        return ex.Status == 429 ? new ModelRateLimitedException(error) : new ModelServiceException(ex.Status, error);
     }
 
     private static ChatMessage ToRequestMessage(DomainMessage message) =>

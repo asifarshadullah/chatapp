@@ -6,6 +6,7 @@ using Chat.Application.Services;
 using Chat.Domain.Entities;
 using Chat.Domain.Enums;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Chat.Application.Tests.Services;
 
@@ -21,6 +22,7 @@ public class ChatServiceTests
     private readonly FakeChatRepository _repository;
     private readonly FakeAiProvider _aiProvider;
     private readonly FakeQuota _quota;
+    private readonly FakeTitleGenerator _titles;
     private readonly ChatService _sut;
 
     public ChatServiceTests()
@@ -28,7 +30,8 @@ public class ChatServiceTests
         _repository = new FakeChatRepository();
         _aiProvider = new FakeAiProvider();
         _quota = new FakeQuota();
-        _sut = new ChatService(_repository, _aiProvider, _quota);
+        _titles = new FakeTitleGenerator();
+        _sut = new ChatService(_repository, _aiProvider, _quota, _titles, NullLogger<ChatService>.Instance);
     }
 
     // ── StreamResponseAsync ─────────────────────────────────────────────────
@@ -206,11 +209,148 @@ public class ChatServiceTests
     [Fact]
     public async Task StreamResponseAsync_ANewConversation_IsTitledWithItsFirstMessage()
     {
+        _titles.Title = null;
         var message = "  What is\n  a monad, and why does everyone keep talking about them so much? ";
 
         var conversationId = await StartConversationAsync(message, UserId);
 
         _repository.Find(conversationId).Title.Should().Be(ConversationTitle.From(message));
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_AfterTheFirstReply_StoresTheGeneratedTitle()
+    {
+        _titles.Title = "Monads Explained";
+
+        var conversationId = await StartConversationAsync("What is a monad?", UserId, model: "groq");
+
+        _titles.Calls.Should().ContainSingle().Which.Should().Be(("groq", "What is a monad?"));
+        _repository.Find(conversationId).Title.Should().Be("Monads Explained");
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_AsksForTheTitleOnlyAfterTheLastToken()
+    {
+        _aiProvider.Tokens = ["One", "Two"];
+        var tokensBeforeTitle = -1;
+        var received = 0;
+        _titles.OnGenerate = () => tokensBeforeTitle = received;
+
+        await foreach (var _ in _sut.StreamResponseAsync("Hi", UserId))
+            received++;
+
+        tokensBeforeTitle.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_WhenNoTitleIsGenerated_KeepsTheFirstMessageTitle()
+    {
+        _titles.Title = null;
+
+        var conversationId = await StartConversationAsync("What is a monad?", UserId);
+
+        _repository.Find(conversationId).Title.Should().Be("What is a monad?");
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_ALaterReply_DoesNotAskForATitle()
+    {
+        var conversationId = await StartConversationAsync("First", UserId);
+        _titles.Calls.Clear();
+        _titles.Title = "Something else";
+
+        await foreach (var _ in _sut.StreamResponseAsync("Second", UserId, conversationId)) { }
+
+        _titles.Calls.Should().BeEmpty();
+        _repository.Find(conversationId).Title.Should().Be("Generated title");
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_AFirstReplyThatFailsPartWay_IsNotTitled_NorIsALaterOne()
+    {
+        _aiProvider.Tokens = ["Hel"];
+        _aiProvider.ThrowAfterTokens = new InvalidOperationException("model failed");
+        Guid conversationId = Guid.Empty;
+        var act = async () =>
+        {
+            await foreach (var (id, _) in _sut.StreamResponseAsync("First", UserId))
+                conversationId = id;
+        };
+        await act.Should().ThrowAsync<InvalidOperationException>();
+
+        _aiProvider.ThrowAfterTokens = null;
+        await foreach (var _ in _sut.StreamResponseAsync("Second", UserId, conversationId)) { }
+
+        _titles.Calls.Should().BeEmpty();
+        _repository.Find(conversationId).Title.Should().Be("First");
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_AFirstReplyCancelledPartWay_IsNotTitled()
+    {
+        _aiProvider.Tokens = ["Hel"];
+        _aiProvider.WaitForCancellationAfterTokens = true;
+        using var cts = new CancellationTokenSource();
+        var act = async () =>
+        {
+            await foreach (var _ in _sut.StreamResponseAsync("Hi", UserId, ct: cts.Token))
+                await cts.CancelAsync();
+        };
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        _titles.Calls.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_AnEmptyFirstReply_DoesNotAskForATitle()
+    {
+        _aiProvider.Tokens = [];
+
+        await StartConversationAsync("First", UserId);
+
+        _titles.Calls.Should().BeEmpty();
+        _repository.Conversations.Single().Title.Should().Be("First");
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_WhenTheTitleCannotBeSaved_StillEndsTheReply()
+    {
+        _repository.SetTitleFails = true;
+
+        var conversationId = await StartConversationAsync("First", UserId);
+
+        _repository.Find(conversationId).Title.Should().Be("First");
+        await ShouldHoldMessagesAsync(conversationId, ("user", "First"), ("assistant", "AI response"));
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_ACallerWhoLeavesWhileTheTitleIsGenerated_StillGetsItStored()
+    {
+        using var cts = new CancellationTokenSource();
+        _titles.OnGenerate = cts.Cancel;
+        Guid conversationId = Guid.Empty;
+
+        await foreach (var (id, _) in _sut.StreamResponseAsync("Hi", UserId, ct: cts.Token))
+            conversationId = id;
+
+        _titles.ReceivedToken.CanBeCanceled.Should().BeFalse();
+        _repository.Find(conversationId).Title.Should().Be("Generated title");
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_ATitledNewConversation_CountsOneMessage()
+    {
+        await StartConversationAsync("Hi", UserId);
+
+        _quota.Consumed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_ATitledConversation_HoldsOnlyTheMessageAndTheReply()
+    {
+        var conversationId = await StartConversationAsync("Hi", UserId);
+
+        await ShouldHoldMessagesAsync(conversationId, ("user", "Hi"), ("assistant", "AI response"));
     }
 
     // ── GetHistoryAsync ─────────────────────────────────────────────────────
@@ -381,10 +521,10 @@ public class ChatServiceTests
         history!.Messages.Select(m => (m.Role, m.Content)).Should().Equal(expected);
     }
 
-    private async Task<Guid> StartConversationAsync(string content, Guid userId)
+    private async Task<Guid> StartConversationAsync(string content, Guid userId, string? model = null)
     {
         Guid conversationId = Guid.Empty;
-        await foreach (var (convId, _) in _sut.StreamResponseAsync(content, userId))
+        await foreach (var (convId, _) in _sut.StreamResponseAsync(content, userId, modelId: model))
             conversationId = convId;
         return conversationId;
     }
@@ -398,6 +538,10 @@ public class ChatServiceTests
         public string? ReceivedModelId { get; set; }
         public Exception? ThrowAfterTokens { get; set; }
         public bool WaitForCancellationAfterTokens { get; set; }
+
+        // The service asks ITitleGenerator for titles, never the provider directly.
+        public Task<string> CompleteAsync(string? modelId, string instructions, string content, int maxTokens, CancellationToken ct = default) =>
+            throw new NotSupportedException();
 
         public async IAsyncEnumerable<string> StreamCompletionAsync(
             string? modelId,
@@ -434,6 +578,22 @@ public class ChatServiceTests
         }
     }
 
+    private sealed class FakeTitleGenerator : ITitleGenerator
+    {
+        public string? Title { get; set; } = "Generated title";
+        public List<(string? ModelId, string FirstMessage)> Calls { get; } = [];
+        public CancellationToken ReceivedToken { get; private set; }
+        public Action? OnGenerate { get; set; }
+
+        public Task<string?> GenerateAsync(string? modelId, string firstMessage, CancellationToken ct = default)
+        {
+            Calls.Add((modelId, firstMessage));
+            ReceivedToken = ct;
+            OnGenerate?.Invoke();
+            return Task.FromResult(Title);
+        }
+    }
+
     /// <summary>Mirrors the repository contract: lookups match on id and owner together.</summary>
     private sealed class FakeChatRepository : IChatRepository
     {
@@ -461,8 +621,12 @@ public class ChatServiceTests
             return Task.CompletedTask;
         }
 
+        public bool SetTitleFails { get; set; }
+
         public Task SetTitleAsync(Guid conversationId, Guid userId, string title, CancellationToken ct = default)
         {
+            if (SetTitleFails)
+                throw new InvalidOperationException("database unavailable");
             var conversation = FindOwned(conversationId, userId)
                 ?? throw new ConversationNotFoundException(conversationId);
             conversation.ChangeTitle(title);

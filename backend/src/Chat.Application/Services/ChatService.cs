@@ -5,6 +5,7 @@ using Chat.Application.Exceptions;
 using Chat.Application.Interfaces;
 using Chat.Domain.Entities;
 using Chat.Domain.Enums;
+using Microsoft.Extensions.Logging;
 
 namespace Chat.Application.Services;
 
@@ -16,15 +17,20 @@ public class ChatService : IChatService
     private readonly IChatRepository _repository;
     private readonly IAiProvider _aiProvider;
     private readonly IDailyMessageQuota _quota;
+    private readonly ITitleGenerator _titles;
+    private readonly ILogger<ChatService> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ChatService"/>.
     /// </summary>
-    public ChatService(IChatRepository repository, IAiProvider aiProvider, IDailyMessageQuota quota)
+    public ChatService(IChatRepository repository, IAiProvider aiProvider, IDailyMessageQuota quota, ITitleGenerator titles,
+        ILogger<ChatService> logger)
     {
         _repository = repository;
         _aiProvider = aiProvider;
         _quota = quota;
+        _titles = titles;
+        _logger = logger;
     }
 
     /// <inheritdoc/>
@@ -64,6 +70,11 @@ public class ChatService : IChatService
                 reply.Append(token);
                 yield return (conversation.Id, token);
             }
+
+            // Only after a first reply that ran to its end with text; an empty one is a failure.
+            // Not cancellable by the caller: the reply is complete, and the generator bounds its wait.
+            if (existing is null && reply.Length > 0)
+                await StoreGeneratedTitleAsync(conversation.Id, userId, modelId, content);
         }
         finally
         {
@@ -74,6 +85,22 @@ public class ChatService : IChatService
                 var assistantMessage = new ChatMessage(reply.ToString(), MessageRole.Assistant);
                 await _repository.AddMessageAsync(conversation.Id, userId, assistantMessage, CancellationToken.None);
             }
+        }
+    }
+
+    // The reply has fully arrived, so a title that cannot be stored must not turn it into an error.
+    private async Task StoreGeneratedTitleAsync(Guid conversationId, Guid userId, string? modelId, string firstMessage)
+    {
+        var title = await _titles.GenerateAsync(modelId, firstMessage, CancellationToken.None);
+        if (title is null)
+            return;
+        try
+        {
+            await _repository.SetTitleAsync(conversationId, userId, title, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Could not store the title of conversation {ConversationId}.", conversationId);
         }
     }
 

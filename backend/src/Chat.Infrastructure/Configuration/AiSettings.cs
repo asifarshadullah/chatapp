@@ -18,6 +18,12 @@ public class AiSettings
     public int MaxHistoryMessages { get; set; } = 10;
 
     public int MaxReplyTokens { get; set; } = 800;
+
+    /// <summary>
+    /// The most tokens a title request may use. Reasoning counts, so this leaves a reasoning model
+    /// room to think before it writes the few words of a title.
+    /// </summary>
+    public int MaxTitleTokens { get; set; } = 300;
 }
 
 /// <summary>One service offering the OpenAI chat completions API, and the model to use there.</summary>

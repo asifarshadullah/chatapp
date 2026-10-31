@@ -15,6 +15,9 @@ public sealed class FakeChatCompletionsHandler : HttpMessageHandler
     public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
     public string ErrorBody { get; init; } = """{"error":{"message":"Rate limit reached"}}""";
 
+    /// <summary>The text of the answer to a request that does not ask for a stream.</summary>
+    public string Completion { get; init; } = string.Empty;
+
     public List<(HttpRequestMessage Request, string Body)> Requests { get; } = [];
 
     public static string Content(string text) =>
@@ -42,6 +45,12 @@ public sealed class FakeChatCompletionsHandler : HttpMessageHandler
 
         if (Status != HttpStatusCode.OK)
             return new HttpResponseMessage(Status) { Content = new StringContent(ErrorBody, Encoding.UTF8, "application/json") };
+
+        if (!body.Contains("\"stream\":true", StringComparison.Ordinal))
+        {
+            var completion = $$"""{"id":"c1","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":{{System.Text.Json.JsonSerializer.Serialize(Completion)}}},"finish_reason":"stop"}]}""";
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(completion, Encoding.UTF8, "application/json") };
+        }
 
         var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new EventStream(_events.Reader)) };
         response.Content.Headers.ContentType = new("text/event-stream");
