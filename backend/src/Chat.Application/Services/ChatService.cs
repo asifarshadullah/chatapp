@@ -48,7 +48,7 @@ public class ChatService : IChatService
         if (!await _quota.TryConsumeAsync(userId, ct))
             throw new DailyMessageLimitReachedException(_quota.Limit);
 
-        var conversation = existing ?? await _repository.CreateConversationAsync(userId, ct);
+        var conversation = existing ?? await _repository.CreateConversationAsync(userId, ConversationTitle.From(content), ct);
 
         await _repository.AddMessageAsync(conversation.Id, userId, userMessage, ct);
 

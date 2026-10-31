@@ -105,7 +105,7 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
     public async Task GetHistory_WhenChatFeatureDisabled_StillReturnsOwnHistory()
     {
         await using var factory = new DisabledChatFeatureFactory();
-        var conversation = await factory.Repository.CreateConversationAsync(TestAuthHandler.TestUserId);
+        var conversation = await factory.Repository.CreateConversationAsync(TestAuthHandler.TestUserId, "Saved");
         await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Hello", MessageRole.User));
         await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Earlier reply", MessageRole.Assistant));
 
@@ -119,7 +119,7 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
     // Seeds straight into the repository, so these tests do not depend on the send path.
     private async Task<Guid> StartConversationAs(Guid user, string message)
     {
-        var conversation = await _factory.Repository.CreateConversationAsync(user);
+        var conversation = await _factory.Repository.CreateConversationAsync(user, "Saved");
         await AddExchangeAs(user, conversation.Id, message);
         return conversation.Id;
     }

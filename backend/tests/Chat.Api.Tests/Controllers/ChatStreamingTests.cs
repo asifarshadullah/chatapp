@@ -82,7 +82,7 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
     [Fact]
     public async Task PostMessage_IntoOwnConversation_StreamsItsIdAndAddsToIt()
     {
-        var conversation = await _factory.Repository.CreateConversationAsync(Alice);
+        var conversation = await _factory.Repository.CreateConversationAsync(Alice, "Saved");
         await _factory.Repository.AddMessageAsync(conversation.Id, Alice, new ChatMessage("First", MessageRole.User));
         await _factory.Repository.AddMessageAsync(conversation.Id, Alice, new ChatMessage("Earlier reply", MessageRole.Assistant));
 
@@ -325,7 +325,7 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
 
     private async Task<Guid> StartConversationAs(Guid user)
     {
-        var conversation = await _factory.Repository.CreateConversationAsync(user);
+        var conversation = await _factory.Repository.CreateConversationAsync(user, "Saved");
         await _factory.Repository.AddMessageAsync(conversation.Id, user, new ChatMessage("Mine", MessageRole.User));
         await _factory.Repository.AddMessageAsync(conversation.Id, user, new ChatMessage("Earlier reply", MessageRole.Assistant));
         return conversation.Id;

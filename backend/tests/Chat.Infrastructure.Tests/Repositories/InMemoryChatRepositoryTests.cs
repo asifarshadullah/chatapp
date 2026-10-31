@@ -19,7 +19,7 @@ public class InMemoryChatRepositoryTests
     [Fact]
     public async Task CreateConversationAsync_ReturnsNewConversation()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
 
         conversation.Should().NotBeNull();
         conversation.Id.Should().NotBeEmpty();
@@ -29,7 +29,7 @@ public class InMemoryChatRepositoryTests
     [Fact]
     public async Task GetConversationAsync_WithValidId_ReturnsConversation()
     {
-        var created = await _sut.CreateConversationAsync(OwnerId);
+        var created = await _sut.CreateConversationAsync(OwnerId, "Saved");
 
         var retrieved = await _sut.GetConversationAsync(created.Id, OwnerId);
 
@@ -48,7 +48,7 @@ public class InMemoryChatRepositoryTests
     [Fact]
     public async Task AddMessageAsync_StoresMessageInConversation()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         var message = new ChatMessage("Hello", MessageRole.User);
 
         await _sut.AddMessageAsync(conversation.Id, OwnerId, message);
@@ -71,7 +71,7 @@ public class InMemoryChatRepositoryTests
     [Fact]
     public async Task GetConversationAsync_ForAnotherUser_ReturnsNull()
     {
-        var created = await _sut.CreateConversationAsync(OwnerId);
+        var created = await _sut.CreateConversationAsync(OwnerId, "Saved");
 
         var result = await _sut.GetConversationAsync(created.Id, OtherUserId);
 
@@ -81,7 +81,7 @@ public class InMemoryChatRepositoryTests
     [Fact]
     public async Task AddMessageAsync_FromAnotherUser_ThrowsAndLeavesConversationUnchanged()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("Mine", MessageRole.User));
 
         var act = () => _sut.AddMessageAsync(
@@ -95,7 +95,7 @@ public class InMemoryChatRepositoryTests
     [Fact]
     public async Task GetConversationAsync_ReturnsMessagesInOrder()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         var first = new ChatMessage("First", MessageRole.User);
         var second = new ChatMessage("Second", MessageRole.Assistant);
 

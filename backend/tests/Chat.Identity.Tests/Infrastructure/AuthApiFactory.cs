@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text;
+using Chat.Application.DTOs;
 using Chat.Application.Interfaces;
 using Chat.Billing.Application.Interfaces;
 using Chat.Billing.Domain.Entities;
@@ -112,7 +113,7 @@ public class AuthApiFactory : WebApplicationFactory<Program>
     public async Task<Guid> SeedConversationAsync(Guid ownerId, string message)
     {
         var repository = Services.GetRequiredService<IChatRepository>();
-        var conversation = await repository.CreateConversationAsync(ownerId);
+        var conversation = await repository.CreateConversationAsync(ownerId, "Saved");
         await repository.AddMessageAsync(conversation.Id, ownerId, new ChatMessage(message, MessageRole.User));
         await repository.AddMessageAsync(conversation.Id, ownerId, new ChatMessage("Seeded reply", MessageRole.Assistant));
         return conversation.Id;
@@ -240,15 +241,21 @@ public class CountingChatRepository(IChatRepository inner) : IChatRepository
 
     public int ConversationsCreated => Volatile.Read(ref _created);
 
-    public async Task<Conversation> CreateConversationAsync(Guid userId, CancellationToken ct = default)
+    public async Task<Conversation> CreateConversationAsync(Guid userId, string title, CancellationToken ct = default)
     {
-        var conversation = await inner.CreateConversationAsync(userId, ct);
+        var conversation = await inner.CreateConversationAsync(userId, title, ct);
         Interlocked.Increment(ref _created);
         return conversation;
     }
 
     public Task<Conversation?> GetConversationAsync(Guid conversationId, Guid userId, CancellationToken ct = default) =>
         inner.GetConversationAsync(conversationId, userId, ct);
+
+    public Task SetTitleAsync(Guid conversationId, Guid userId, string title, CancellationToken ct = default) =>
+        inner.SetTitleAsync(conversationId, userId, title, ct);
+
+    public Task<ConversationPage> ListConversationsAsync(Guid userId, int limit, string? cursor, CancellationToken ct = default) =>
+        inner.ListConversationsAsync(userId, limit, cursor, ct);
 
     public Task AddMessageAsync(Guid conversationId, Guid userId, ChatMessage message, CancellationToken ct = default) =>
         inner.AddMessageAsync(conversationId, userId, message, ct);
