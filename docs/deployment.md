@@ -119,7 +119,6 @@ that Groq accepts it, so this first reply is what shows the key works.
   reached its model limit for now. Please try again later." until Groq's window resets.
 - The deployed app offers only Groq. The local model is defined only in
   `appsettings.Development.json`, which is not in the image.
-- Don't share the URL until #10 and #15 are verified.
 
 Secrets are held in two places only: Render, for the live app, and your Mac's Keychain, for
 local runs. GitHub holds only the deploy hook URL. CI uses a fake model, and Deploy never needs
