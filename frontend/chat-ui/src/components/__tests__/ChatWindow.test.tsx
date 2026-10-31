@@ -459,62 +459,7 @@ describe('ChatWindow', () => {
     expect(conversationInUrl()).toBe(SAVED_ID)
   })
 
-  // ── New chat ──────────────────────────────────────────────────────────
-
-  it('offers no new chat on an empty chat', () => {
-    render(<ChatWindow />)
-    expect(screen.queryByRole('button', { name: /new chat/i })).not.toBeInTheDocument()
-  })
-
-  it('does not allow a new chat while a reply streams', async () => {
-    vi.mocked(streamMessage).mockImplementation(() => new Promise(() => {}))
-    render(<ChatWindow />)
-
-    await send('Hello')
-
-    await waitFor(() => expect(screen.getByRole('button', { name: /new chat/i })).toBeDisabled())
-  })
-
-  it('starts an empty conversation on new chat', async () => {
-    openAt(`/?conversation=${SAVED_ID}`)
-    mockStream(['Hi'])
-    render(<ChatWindow />)
-    await screen.findByText('Earlier question')
-
-    await userEvent.click(screen.getByRole('button', { name: /new chat/i }))
-
-    expect(screen.queryByText('Earlier question')).not.toBeInTheDocument()
-    expect(conversationInUrl()).toBeNull()
-    await send('Hello')
-    await waitFor(() =>
-      expect(streamMessage).toHaveBeenCalledWith('Hello', undefined, expect.any(Object), expect.any(AbortSignal), 'local'),
-    )
-  })
-
-  it('clears an error on new chat', async () => {
-    vi.mocked(streamMessage).mockImplementation(async (_msg, _convId, { onError }: StreamCallbacks) => {
-      onError('Connection error')
-    })
-    render(<ChatWindow />)
-    await send('Hello')
-    await screen.findByText('Connection error')
-
-    await userEvent.click(screen.getByRole('button', { name: /new chat/i }))
-
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('leaves a conversation that failed to load on new chat', async () => {
-    openAt(`/?conversation=${SAVED_ID}`)
-    vi.mocked(getHistory).mockResolvedValue({ error: HISTORY_LOAD_FAILED_MESSAGE })
-    render(<ChatWindow />)
-    await screen.findByText(HISTORY_LOAD_FAILED_MESSAGE)
-
-    await userEvent.click(screen.getByRole('button', { name: /new chat/i }))
-
-    expect(screen.getByRole('textbox')).toBeEnabled()
-    expect(conversationInUrl()).toBeNull()
-  })
+  // New chat lives in the conversation sidebar now; ChatShell.test covers it.
 
   it('shows a reply once when its last token arrives together with the end of the stream', async () => {
     vi.mocked(streamMessage).mockImplementation(async (_msg, _convId, callbacks: StreamCallbacks) => {

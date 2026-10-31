@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ThemeProvider, createTheme, CssBaseline, Box, CircularProgress } from '@mui/material'
-import { ChatWindow } from './components/ChatWindow'
+import { ChatShell } from './components/ChatShell'
 import { LoginPage } from './components/LoginPage'
 import { BillingPage } from './components/BillingPage'
 import { authService } from './services/authService'
@@ -75,7 +75,7 @@ function App() {
         view === 'billing' ? (
           <BillingPage onBack={() => setView('chat')} />
         ) : (
-          <ChatWindow
+          <ChatShell
             onLogout={endSession}
             onSessionExpired={abandonSession}
             onManageBilling={() => setView('billing')}

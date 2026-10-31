@@ -147,6 +147,32 @@ test.describe('Chat', () => {
     await expect(page).not.toHaveURL(/conversation=/);
   });
 
+  test('a conversation can be found in the sidebar and reopened', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+    const question = `Reply with the single word: sidebar ${randomUUID().slice(0, 8)}`;
+    await chat.sendAndAwaitReply(question, 1);
+    const conversationId = new URL(page.url()).searchParams.get('conversation');
+    expect(conversationId).toMatch(/^[0-9a-f-]{36}$/);
+
+    // The title is the model's, so the entry is found by being the open one, not by its text.
+    const conversations = page.getByRole('list', { name: 'Conversations' });
+    const current = conversations.locator('[aria-current="page"]');
+    await expect(current).toHaveCount(1);
+    await expect(current).toHaveText(/\S/);
+    const title = await current.innerText();
+
+    await page.getByRole('button', { name: 'New chat' }).click();
+    await expect(chat.getUserMessages()).toHaveCount(0);
+    await expect(current).toHaveCount(0);
+
+    await conversations.getByRole('button', { name: title, exact: true }).first().click();
+
+    await expect(page).toHaveURL(new RegExp(`conversation=${conversationId}`));
+    await expect(chat.getUserMessages()).toHaveText([question]);
+    await expect(chat.getAssistantMessages()).toHaveCount(1);
+  });
+
   test('a reload during a reply keeps what was produced', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();
