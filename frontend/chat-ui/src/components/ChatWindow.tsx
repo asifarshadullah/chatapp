@@ -22,11 +22,26 @@ interface ChatWindowProps {
   onManageBilling?: () => void
   /** Called when the session turns out to have ended. */
   onSessionExpired?: () => void
+  /** The conversation shown, or being loaded, so the sidebar can mark it. */
+  onConversationChange?: (conversationId: string | undefined) => void
+  onStreamingChange?: (isStreaming: boolean) => void
+  /** Whether there is anything for New chat to clear: messages or an error. */
+  onCanStartNewChatChange?: (canStartNewChat: boolean) => void
+  /** Called once a send has ended, however it ended, so the conversation list can follow. */
+  onSendFinished?: () => void
 }
 
 type HistoryState = 'none' | 'loading' | 'failed'
 
-export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: ChatWindowProps) {
+export function ChatWindow({
+  onLogout,
+  onManageBilling,
+  onSessionExpired,
+  onConversationChange,
+  onStreamingChange,
+  onCanStartNewChatChange,
+  onSendFinished,
+}: ChatWindowProps) {
   const [requested] = useState(conversationInUrl)
   const requestedIsValid = requested !== null && isConversationId(requested)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -114,14 +129,6 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
     }
   }, [requested])
 
-  function startNewChat() {
-    setMessages([])
-    setError(null)
-    setConversationId(undefined)
-    setHistoryState('none')
-    removeConversationFromUrl()
-  }
-
   async function handleSend(text: string) {
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -173,6 +180,7 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
         setIsStreaming(false)
         streamingIdRef.current = null
         streamingContentRef.current = ''
+        onSendFinished?.()
       },
       onError: (err) => {
         setIsStreaming(false)
@@ -181,23 +189,33 @@ export function ChatWindow({ onLogout, onManageBilling, onSessionExpired }: Chat
         // What arrived stays on screen: the server saves it too, so a reload shows the same.
         streamingIdRef.current = null
         streamingContentRef.current = ''
+        onSendFinished?.()
       },
     }, reply.signal, model ?? undefined)
   }
 
   const inputBlocked = isStreaming || historyState !== 'none'
   const canStartNewChat = messages.length > 0 || error !== null
+  // While the history loads, the conversation is the one the URL names.
+  const shownConversationId = conversationId ?? (historyState === 'loading' ? requested ?? undefined : undefined)
+
+  useEffect(() => {
+    onConversationChange?.(shownConversationId)
+  }, [shownConversationId, onConversationChange])
+
+  useEffect(() => {
+    onStreamingChange?.(isStreaming)
+  }, [isStreaming, onStreamingChange])
+
+  useEffect(() => {
+    onCanStartNewChatChange?.(canStartNewChat)
+  }, [canStartNewChat, onCanStartNewChatChange])
 
   const headerButtons = (
     <Box sx={{ position: 'absolute', top: 12, right: 16, display: 'flex', gap: 1, alignItems: 'center' }}>
       <IconButton size="small" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
         <SettingsOutlinedIcon fontSize="small" />
       </IconButton>
-      {canStartNewChat && (
-        <Button size="small" variant="outlined" onClick={startNewChat} disabled={isStreaming}>
-          New chat
-        </Button>
-      )}
       {onManageBilling && (
         <Button size="small" variant="outlined" onClick={onManageBilling}>
           Manage Plan

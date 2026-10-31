@@ -9,6 +9,7 @@ export const REPLY_INTERRUPTED_MESSAGE = 'The reply was interrupted.'
 export const CONVERSATION_NOT_FOUND_MESSAGE = 'Conversation not found.'
 export const HISTORY_LOAD_FAILED_MESSAGE = 'Your conversation could not be loaded.'
 export const MODELS_LOAD_FAILED_MESSAGE = 'The models could not be loaded.'
+export const CONVERSATIONS_LOAD_FAILED_MESSAGE = 'Your conversations could not be loaded.'
 
 export interface StreamCallbacks {
   onConversationId: (id: string) => void
@@ -31,6 +32,19 @@ export interface ModelsOffered {
 
 export type ModelsResult = ModelsOffered | { error: string }
 
+export interface ConversationSummary {
+  id: string
+  title: string
+  lastActivityAt: string
+}
+
+export interface ConversationPage {
+  conversations: ConversationSummary[]
+  nextCursor: string | null
+}
+
+export type ConversationPageResult = ConversationPage | { error: string }
+
 export async function getModels(): Promise<ModelsResult> {
   try {
     const response = await authorizedFetch(`${API_BASE}/chat/models`)
@@ -39,6 +53,19 @@ export async function getModels(): Promise<ModelsResult> {
     return { defaultModel: offered.defaultModel, models: offered.models }
   } catch {
     return { error: MODELS_LOAD_FAILED_MESSAGE }
+  }
+}
+
+/** One page of the user's conversations, newest first; the next page is asked for with its cursor. */
+export async function listConversations(cursor?: string): Promise<ConversationPageResult> {
+  const query = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`
+  try {
+    const response = await authorizedFetch(`${API_BASE}/chat/conversations${query}`)
+    if (!response.ok) return { error: CONVERSATIONS_LOAD_FAILED_MESSAGE }
+    const page: ConversationPage = await response.json()
+    return { conversations: page.conversations, nextCursor: page.nextCursor }
+  } catch (err) {
+    return { error: err instanceof SessionExpiredError ? SESSION_EXPIRED_MESSAGE : CONVERSATIONS_LOAD_FAILED_MESSAGE }
   }
 }
 

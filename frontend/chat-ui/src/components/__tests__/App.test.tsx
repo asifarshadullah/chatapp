@@ -1,9 +1,10 @@
-import { it, expect, vi, beforeEach } from 'vitest'
+import { it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from '../../App'
 import { authService } from '../../services/authService'
 import { SessionExpiredError } from '../../services/sessionErrors'
+import { listConversations } from '../../services/chatApi'
 
 vi.mock('../../services/authService', () => ({
   authService: {
@@ -24,6 +25,7 @@ vi.mock('../../services/chatApi', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/chatApi')>()),
   getHistory: vi.fn().mockResolvedValue({ messages: [] }),
   getModels: vi.fn().mockResolvedValue({ defaultModel: 'local', models: [{ id: 'local', name: 'Local · gemma3:4b' }] }),
+  listConversations: vi.fn().mockResolvedValue({ conversations: [], nextCursor: null }),
 }))
 
 vi.mock('../../services/billingService', () => ({
@@ -84,6 +86,49 @@ it('returns to LoginPage after logout', async () => {
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument()
   })
   expect(authService.logout).toHaveBeenCalledOnce()
+})
+
+// ── The sidebar shows only the signed-in user's conversations ─────────────────
+
+afterEach(() => vi.unstubAllGlobals())
+
+it("never shows the previous user's conversations to the next one in the same tab", async () => {
+  // A wide window, so the sidebar is on screen without opening it.
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: query.includes('min-width'),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }))
+  const alices = { id: 'a1', title: "Alice's plans", lastActivityAt: '2026-10-26T10:00:00Z' }
+  const bobs = { id: 'b1', title: "Bob's notes", lastActivityAt: '2026-10-26T11:00:00Z' }
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  vi.mocked(listConversations).mockResolvedValue({ conversations: [alices], nextCursor: null })
+  vi.mocked(authService.login).mockResolvedValue({ accessToken: 'tok', expiresAt: '', userId: 'bob' })
+
+  render(<App />)
+  expect(await screen.findByText("Alice's plans")).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole('button', { name: /logout/i }))
+  await waitFor(() => expect(screen.getByLabelText(/email/i)).toBeInTheDocument())
+  expect(screen.queryByText("Alice's plans")).not.toBeInTheDocument()
+
+  // Bob's list is held back, so the moment before it arrives is seen too.
+  let answer!: (page: { conversations: typeof bobs[]; nextCursor: null }) => void
+  vi.mocked(listConversations).mockReturnValue(new Promise((resolve) => (answer = resolve)))
+  await userEvent.type(screen.getByLabelText(/email/i), 'bob@test.com')
+  await userEvent.type(screen.getByLabelText(/password/i), 'Password123')
+  await userEvent.click(screen.getByRole('button', { name: /login/i }))
+
+  await waitFor(() => expect(screen.getByRole('textbox')).toBeInTheDocument())
+  expect(screen.queryByText("Alice's plans")).not.toBeInTheDocument()
+  answer({ conversations: [bobs], nextCursor: null })
+  expect(await screen.findByText("Bob's notes")).toBeInTheDocument()
+  expect(screen.queryByText("Alice's plans")).not.toBeInTheDocument()
 })
 
 // ── Cycle FB3.2 ──────────────────────────────────────────────────────────────

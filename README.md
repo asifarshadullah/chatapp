@@ -18,6 +18,7 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 
 - **Real-time streaming** — word-by-word LLM responses as server-sent events over one HTTP request
 - **Conversation links** — the open conversation lives in the URL (`?conversation=<id>`), so a reload, a new tab or a bookmark reopens it with its history
+- **Saved conversations** — a sidebar lists your conversations, most recently active first, from `GET /api/chat/conversations` a page at a time; each is titled by the model after its first reply
 - **Any OpenAI-compatible model** — one provider for the chat completions API: Ollama locally, Groq when deployed, and others by configuration alone
 - **Settings** — a gear button opens a Settings dialog whose Model dropdown lists the models this deployment offers; the choice is remembered in the browser
 - **Fair use** — each user may send 50 messages per UTC day, so no one can use up a shared model allowance

@@ -3,7 +3,9 @@ import {
   streamMessage,
   getHistory,
   getModels,
+  listConversations,
   MODELS_LOAD_FAILED_MESSAGE,
+  CONVERSATIONS_LOAD_FAILED_MESSAGE,
   SEND_FAILED_MESSAGE,
   REPLY_INTERRUPTED_MESSAGE,
   CONVERSATION_NOT_FOUND_MESSAGE,
@@ -347,5 +349,59 @@ describe('streamMessage and the model', () => {
     await streamMessage('Hello', undefined, recorder().callbacks)
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty('model')
+  })
+})
+
+describe('listConversations', () => {
+  const PAGE = {
+    conversations: [
+      { id: 'c2', title: 'Newer', lastActivityAt: '2026-10-26T10:00:00Z' },
+      { id: 'c1', title: 'Older', lastActivityAt: '2026-10-25T10:00:00Z' },
+    ],
+    nextCursor: 'next-1',
+  }
+
+  it('asks for the first page without a cursor, with the token in the header', async () => {
+    signedIn()
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(PAGE))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await listConversations()
+
+    expect(result).toEqual(PAGE)
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/api/chat/conversations')
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer stored-token')
+  })
+
+  it('asks for a later page with its cursor, encoded', async () => {
+    signedIn()
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ conversations: [], nextCursor: null }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await listConversations('a+b/c')
+
+    expect(result).toEqual({ conversations: [], nextCursor: null })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/chat/conversations?cursor=a%2Bb%2Fc')
+  })
+
+  it('reports a failed response', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(problem(500)))
+
+    expect(await listConversations()).toEqual({ error: CONVERSATIONS_LOAD_FAILED_MESSAGE })
+  })
+
+  it('reports an unreachable server', async () => {
+    signedIn()
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    expect(await listConversations()).toEqual({ error: CONVERSATIONS_LOAD_FAILED_MESSAGE })
+  })
+
+  it('reports an ended session as such', async () => {
+    vi.spyOn(authService, 'getValidToken').mockRejectedValue(new SessionExpiredError())
+
+    expect(await listConversations()).toEqual({ error: SESSION_EXPIRED_MESSAGE })
   })
 })
