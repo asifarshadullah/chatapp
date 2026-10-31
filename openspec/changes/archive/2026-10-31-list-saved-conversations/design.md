@@ -83,7 +83,7 @@ It has no title and no last-activity field. There are no indexes beyond `_id`.
   - caps the reply at `Ai:MaxTitleTokens` (default 300, validated as positive at startup). This leaves `gpt-oss` room to reason at `low` effort. A model that spends it all reasoning returns no text, and the first-message title stays;
   - cleans the answer with `ConversationTitle.Clean`;
   - returns `null` when nothing is left.
-- **Failures are contained in the generator.** It enforces a 10-second timeout with its own `CancellationTokenSource`, and catches and logs every failure: a warning for a rate limit, an error otherwise. It returns `null` instead of throwing, so `ChatService` needs no error handling for titles.
+- **Failures are contained in the generator.** It enforces a 10-second timeout with its own `CancellationTokenSource`, and catches and logs every failure: a warning for a rate limit, an error otherwise. It returns `null` instead of throwing, so `ChatService` handles only a failure to store the title.
 
 *Alternative:* put the title method on `IAiProvider` itself. That puts the prompt and the cleanup rule in the transport class. Keeping them in a generator also lets the service tests fake titles without faking the provider.
 
