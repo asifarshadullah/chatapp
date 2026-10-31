@@ -27,6 +27,8 @@ public class ChatController : ControllerBase
 
     private const string ReplyFailedMessage = "The reply could not be completed.";
     private const string ModelRateLimitedMessage = "The demo has reached its model limit for now. Please try again later.";
+    private const int DefaultPageSize = 20;
+    private const int MaxPageSize = 50;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChatController"/> class.
@@ -158,6 +160,39 @@ public class ChatController : ControllerBase
             await stream.WriteAsync("error", new { message = ReplyFailedMessage }, cancellationToken);
         }
         return new EmptyResult();
+    }
+
+    /// <summary>
+    /// Lists the caller's conversations that have a reply, most recently active first, a page at a time.
+    /// </summary>
+    /// <param name="limit">How many conversations to return, 1 to 50; 20 when omitted.</param>
+    /// <param name="cursor">The <c>nextCursor</c> of the previous page, to continue after it.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <response code="200">A page of conversations, and a cursor when more follow.</response>
+    /// <response code="400">If the limit is out of range or not a number, or the cursor is malformed.</response>
+    /// <response code="403">If the caller's role does not grant conversation:read.</response>
+    [HttpGet("conversations")]
+    [Authorize(Policy = "CanReadConversation")]
+    [ProducesResponseType(typeof(ConversationPage), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<ConversationPage>> ListConversations(
+        [FromQuery] int? limit,
+        [FromQuery] string? cursor,
+        CancellationToken cancellationToken)
+    {
+        var pageSize = limit ?? DefaultPageSize;
+        if (pageSize is < 1 or > MaxPageSize)
+            return Problem(detail: $"Limit must be between 1 and {MaxPageSize}.", statusCode: StatusCodes.Status400BadRequest);
+
+        try
+        {
+            return await _chatService.ListConversationsAsync(_currentUser.UserId, pageSize, cursor, cancellationToken);
+        }
+        catch (InvalidCursorException)
+        {
+            return Problem(detail: "Invalid cursor.", statusCode: StatusCodes.Status400BadRequest);
+        }
     }
 
     /// <summary>

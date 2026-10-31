@@ -353,6 +353,17 @@ public class ChatServiceTests
         await ShouldHoldMessagesAsync(conversationId, ("user", "Hi"), ("assistant", "AI response"));
     }
 
+    // ── ListConversationsAsync ──────────────────────────────────────────────
+
+    [Fact]
+    public async Task ListConversationsAsync_PassesTheRequestToTheRepository()
+    {
+        var page = await _sut.ListConversationsAsync(UserId, 7, "cursor");
+
+        _repository.ListedWith.Should().Be((UserId, 7, "cursor"));
+        page.Should().BeSameAs(_repository.Page);
+    }
+
     // ── GetHistoryAsync ─────────────────────────────────────────────────────
 
     [Fact]
