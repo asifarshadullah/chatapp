@@ -208,12 +208,14 @@ app.MapFallbackToFile("index.html", uiFiles);
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
 app.MapFallback("/auth/{**rest}", () => Results.NotFound());
 
-// Seed default roles if the collection is empty, and let old daily message counts expire
+// Seed default roles if the collection is empty, let old daily message counts expire, and
+// index and backfill conversations for the conversation list
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IMongoDatabase>();
     await RoleSeeder.SeedAsync(db);
     await MongoDailyMessageQuota.EnsureIndexesAsync(db);
+    await MongoChatRepository.EnsureIndexesAsync(db);
 }
 
 app.Run();

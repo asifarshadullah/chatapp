@@ -39,6 +39,13 @@ public class ConversationTests
     }
 
     [Fact]
+    public void Create_And_Reconstitute_KeepTheTitle()
+    {
+        new Conversation(OwnerId, "A title").Title.Should().Be("A title");
+        new Conversation(Guid.NewGuid(), OwnerId, DateTime.UtcNow, "Stored").Title.Should().Be("Stored");
+    }
+
+    [Fact]
     public void Reconstitute_WithEmptyOwner_ThrowsArgumentException()
     {
         var act = () => new Conversation(Guid.NewGuid(), Guid.Empty, DateTime.UtcNow);

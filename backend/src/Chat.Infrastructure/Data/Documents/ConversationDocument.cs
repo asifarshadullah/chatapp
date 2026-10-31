@@ -19,6 +19,18 @@ internal class ConversationDocument
 
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>Missing on documents written before titles existed, until startup backfills it.</summary>
+    public string? Title { get; set; }
+
+    /// <summary>The time of the latest message, which orders the conversation list.</summary>
+    public DateTime LastActivityAt { get; set; }
+
+    /// <summary>
+    /// Whether a reply has been saved. Only such conversations are listed: their id was sent to the
+    /// caller with the first token, and a conversation whose reply never started was not.
+    /// </summary>
+    public bool HasReply { get; set; }
+
     public List<ChatMessageDocument> Messages { get; set; } = new();
 }
 

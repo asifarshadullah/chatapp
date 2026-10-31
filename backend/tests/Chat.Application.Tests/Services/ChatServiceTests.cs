@@ -201,6 +201,18 @@ public class ChatServiceTests
         _repository.Conversations.Single().Messages.Select(m => m.Role).Should().Equal(MessageRole.User);
     }
 
+    // ── Titles ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task StreamResponseAsync_ANewConversation_IsTitledWithItsFirstMessage()
+    {
+        var message = "  What is\n  a monad, and why does everyone keep talking about them so much? ";
+
+        var conversationId = await StartConversationAsync(message, UserId);
+
+        _repository.Find(conversationId).Title.Should().Be(ConversationTitle.From(message));
+    }
+
     // ── GetHistoryAsync ─────────────────────────────────────────────────────
 
     [Fact]
@@ -430,9 +442,9 @@ public class ChatServiceTests
         public int ConversationCount => _store.Count;
         public IEnumerable<Conversation> Conversations => _store.Values;
 
-        public Task<Conversation> CreateConversationAsync(Guid userId, CancellationToken ct = default)
+        public Task<Conversation> CreateConversationAsync(Guid userId, string title, CancellationToken ct = default)
         {
-            var conversation = new Conversation(userId);
+            var conversation = new Conversation(userId, title);
             _store[conversation.Id] = conversation;
             return Task.FromResult(conversation);
         }
@@ -448,6 +460,25 @@ public class ChatServiceTests
             conversation.AddMessage(message);
             return Task.CompletedTask;
         }
+
+        public Task SetTitleAsync(Guid conversationId, Guid userId, string title, CancellationToken ct = default)
+        {
+            var conversation = FindOwned(conversationId, userId)
+                ?? throw new ConversationNotFoundException(conversationId);
+            conversation.ChangeTitle(title);
+            return Task.CompletedTask;
+        }
+
+        public ConversationPage Page { get; } = new([], null);
+        public (Guid UserId, int Limit, string? Cursor)? ListedWith { get; private set; }
+
+        public Task<ConversationPage> ListConversationsAsync(Guid userId, int limit, string? cursor, CancellationToken ct = default)
+        {
+            ListedWith = (userId, limit, cursor);
+            return Task.FromResult(Page);
+        }
+
+        public Conversation Find(Guid conversationId) => _store[conversationId];
 
         private Conversation? FindOwned(Guid conversationId, Guid userId) =>
             _store.TryGetValue(conversationId, out var conversation) && conversation.OwnerId == userId

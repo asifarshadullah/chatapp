@@ -51,7 +51,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task CreateConversationAsync_StoresConversationInDatabase()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
 
         conversation.Should().NotBeNull();
         conversation.Id.Should().NotBeEmpty();
@@ -67,7 +67,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task GetConversationAsync_WithValidId_ReturnsStoredConversation()
     {
-        var created = await _sut.CreateConversationAsync(OwnerId);
+        var created = await _sut.CreateConversationAsync(OwnerId, "Saved");
 
         var retrieved = await _sut.GetConversationAsync(created.Id, OwnerId);
 
@@ -90,7 +90,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task AddMessageAsync_PersistsMessageToDatabase()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         var message = new ChatMessage("Hello from MongoDB", MessageRole.User);
 
         await _sut.AddMessageAsync(conversation.Id, OwnerId, message);
@@ -108,7 +108,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task GetConversationAsync_ReturnsAllStoredMessages()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("First", MessageRole.User));
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("Second", MessageRole.Assistant));
 
@@ -124,7 +124,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task GetConversationAsync_ReturnsMessagesInChronologicalOrder()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("Alpha", MessageRole.User));
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("Beta", MessageRole.Assistant));
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("Gamma", MessageRole.User));
@@ -139,7 +139,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task Conversation_PersistsAcrossRepositoryInstances()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("Persisted", MessageRole.User));
 
         // Simulate a server restart by creating a brand-new repository instance
@@ -155,7 +155,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task GetConversationAsync_ForAnotherUser_ReturnsNull()
     {
-        var created = await _sut.CreateConversationAsync(OwnerId);
+        var created = await _sut.CreateConversationAsync(OwnerId, "Saved");
 
         var result = await _sut.GetConversationAsync(created.Id, OtherUserId);
 
@@ -165,7 +165,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task Conversation_KeepsItsOwnerAcrossRepositoryInstances()
     {
-        var created = await _sut.CreateConversationAsync(OwnerId);
+        var created = await _sut.CreateConversationAsync(OwnerId, "Saved");
 
         var freshRepo = new MongoChatRepository(_fixture.Database);
         var retrieved = await freshRepo.GetConversationAsync(created.Id, OwnerId);
@@ -176,7 +176,7 @@ public class MongoChatRepositoryTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task AddMessageAsync_FromAnotherUser_ThrowsAndLeavesConversationUnchanged()
     {
-        var conversation = await _sut.CreateConversationAsync(OwnerId);
+        var conversation = await _sut.CreateConversationAsync(OwnerId, "Saved");
         await _sut.AddMessageAsync(conversation.Id, OwnerId, new ChatMessage("Mine", MessageRole.User));
 
         var act = () => _sut.AddMessageAsync(
