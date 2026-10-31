@@ -10,7 +10,9 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 [![CI](https://github.com/asifarshadullah/chatapp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/asifarshadullah/chatapp/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-![ChatApp chat](docs/images/chat.png)
+**[Live demo](https://chatapp-2uzj.onrender.com)** — register with any email and chat with `gpt-oss-120b` on Groq. It runs on Render's free tier, so the first visit after a quiet spell can take about a minute to wake up.
+
+![ChatApp: saved conversations beside a streamed reply](docs/images/chat.png)
 
 ---
 
@@ -122,7 +124,8 @@ sequenceDiagram
 | Auth | JWT bearer tokens + Google OAuth 2.0 |
 | Authorization | ASP.NET Core policies + custom `IPermissionService` with memory cache |
 | Testing | xUnit, FluentAssertions, Vitest, React Testing Library, Playwright |
-| Infrastructure | Docker Compose (MongoDB 7 + Mongo Express) |
+| Infrastructure | Docker (one image for UI and API), Docker Compose for local MongoDB |
+| Deployment | GitHub Actions → GitHub Container Registry → Render, with MongoDB Atlas |
 
 ---
 
@@ -262,7 +265,7 @@ dotnet test backend/ChatApp.sln
 
 # Frontend (Vitest + React Testing Library)
 cd frontend/chat-ui
-npm test
+npm run test:run
 
 # E2E (Playwright — Chromium)
 cd e2e/playwright
@@ -297,11 +300,35 @@ Longer write-ups live in [docs/architecture/](docs/architecture/) — the trade-
 
 ---
 
+## How it's built
+
+Every change starts as a GitHub issue. Anything beyond a small fix is planned with [OpenSpec](https://github.com/Fission-AI/OpenSpec) before code is written: a proposal, a design and spec scenarios, reviewed first and then archived with the change, so [`openspec/specs/`](openspec/specs/) describes what the app does today. Each task starts as a failing test. A merged issue moves to a `qa` label and is closed only once the behaviour has been checked by hand.
+
+The code is written with AI assistance, using Claude Code. Its working rules are in [`CLAUDE.md`](CLAUDE.md): I review every proposal and diff, approve every commit, and every change passes the full test suites before it merges.
+
+---
+
+## Known limitations
+
+- The live demo offers only Groq's free tier, about 100 messages a day shared by all users. Each user may send 50 messages a day.
+- Plan upgrades do not work on the live demo yet ([#30](https://github.com/asifarshadullah/chatapp/issues/30)), and Google sign-in is set up only for local runs.
+- A reload while a reply is streaming keeps what was produced but stops the rest ([#27](https://github.com/asifarshadullah/chatapp/issues/27)).
+
+## Roadmap
+
+- [#27](https://github.com/asifarshadullah/chatapp/issues/27) Generate replies in the background, so they survive a reload
+- [#18](https://github.com/asifarshadullah/chatapp/issues/18) Retrieval over uploaded documents, with citations, and tool calling
+- [#19](https://github.com/asifarshadullah/chatapp/issues/19) Observability with OpenTelemetry, Prometheus and Grafana
+- [#20](https://github.com/asifarshadullah/chatapp/issues/20) Several instances behind a load balancer, measured with load tests
+- [#22](https://github.com/asifarshadullah/chatapp/issues/22) A rate limiter as a separate Go service
+
+---
+
 ## Author
 
 Built by **Asif Md Arshadullah**
 
-- GitHub: [@asif-arshadullah](https://github.com/asif-arshadullah)
+- GitHub: [@asifarshadullah](https://github.com/asifarshadullah)
 - LinkedIn: [asif-arshadullah](https://www.linkedin.com/in/asif-arshadullah)
 
 ---
