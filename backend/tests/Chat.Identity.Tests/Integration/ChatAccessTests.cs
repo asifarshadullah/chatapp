@@ -71,6 +71,63 @@ public class ChatAccessTests : IClassFixture<AuthApiFactory>
         history!.Messages.Select(m => m.Content).Should().Equal("Hello", "Seeded reply");
     }
 
+    // ── The list needs conversation:read, and holds only the caller's own ───
+
+    private const string ListPath = "/api/chat/conversations";
+
+    private record Entry(Guid Id, string Title);
+    private record Page(List<Entry> Conversations, string? NextCursor);
+
+    [Fact]
+    public async Task ListConversations_WhenNotSignedIn_Returns401()
+    {
+        var response = await _factory.CreateClient().GetAsync(ListPath);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task ListConversations_WithoutReadPermission_Returns403AndNoConversations()
+    {
+        var user = Guid.NewGuid();
+        await _factory.SeedConversationAsync(user, "My secret");
+        var client = _factory.CreateAuthenticatedClientWithRole(user, AuthApiFactory.NoReadRole);
+
+        var response = await client.GetAsync(ListPath);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await response.Content.ReadAsStringAsync()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ListConversations_HoldsEveryOneOfTheCallersAndNoneOfAnotherUsers()
+    {
+        var alice = Guid.NewGuid();
+        var bob = Guid.NewGuid();
+        var alices = new[]
+        {
+            await _factory.SeedConversationAsync(alice, "Alice 1"),
+            await _factory.SeedConversationAsync(alice, "Alice 2"),
+        };
+        await _factory.SeedConversationAsync(bob, "Bob's");
+
+        var page = await _factory.CreateAuthenticatedClientWithRole(alice, "User").GetFromJsonAsync<Page>(ListPath);
+
+        page!.Conversations.Select(c => c.Id).Should().BeEquivalentTo(alices);
+    }
+
+    [Fact]
+    public async Task ListConversations_AsAdmin_HoldsOnlyTheAdminsOwn()
+    {
+        var admin = Guid.NewGuid();
+        var own = await _factory.SeedConversationAsync(admin, "Mine");
+        await _factory.SeedConversationAsync(Guid.NewGuid(), "Someone else's");
+
+        var page = await _factory.CreateAuthenticatedClientWithRole(admin, "Admin").GetFromJsonAsync<Page>(ListPath);
+
+        page!.Conversations.Select(c => c.Id).Should().Equal(own);
+    }
+
     // ── Sending needs a signed-in caller with conversation:create ───────────
 
     private const string MessagesPath = "/api/chat/messages";

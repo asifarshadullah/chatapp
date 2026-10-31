@@ -23,4 +23,10 @@ public interface IChatService
     /// Returns the full message history for a conversation, or null if not found.
     /// </summary>
     Task<ConversationHistoryDto?> GetHistoryAsync(Guid conversationId, Guid userId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns a page of the user's conversations that have a reply, most recently active first.
+    /// </summary>
+    /// <exception cref="Exceptions.InvalidCursorException">Thrown when the cursor was not issued by a page.</exception>
+    Task<ConversationPage> ListConversationsAsync(Guid userId, int limit, string? cursor, CancellationToken cancellationToken = default);
 }

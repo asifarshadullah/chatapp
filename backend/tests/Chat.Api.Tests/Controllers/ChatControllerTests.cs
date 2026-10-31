@@ -116,6 +116,20 @@ public class ChatControllerTests : IClassFixture<ChatApiFactory>
         history!.Messages.Select(m => m.Content).Should().Equal("Hello", "Earlier reply");
     }
 
+    [Fact]
+    public async Task ListConversations_WhenChatFeatureDisabled_StillReturnsOwnConversations()
+    {
+        await using var factory = new DisabledChatFeatureFactory();
+        var conversation = await factory.Repository.CreateConversationAsync(TestAuthHandler.TestUserId, "Saved");
+        await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Hello", MessageRole.User));
+        await factory.Repository.AddMessageAsync(conversation.Id, TestAuthHandler.TestUserId, new ChatMessage("Earlier reply", MessageRole.Assistant));
+
+        var response = await factory.CreateClient().GetAsync("/api/chat/conversations");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadAsStringAsync()).Should().Contain(conversation.Id.ToString());
+    }
+
     // Seeds straight into the repository, so these tests do not depend on the send path.
     private async Task<Guid> StartConversationAs(Guid user, string message)
     {

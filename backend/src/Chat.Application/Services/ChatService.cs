@@ -105,6 +105,17 @@ public class ChatService : IChatService
     }
 
     /// <inheritdoc/>
+    public Task<ConversationPage> ListConversationsAsync(
+        Guid userId,
+        int limit,
+        string? cursor,
+        CancellationToken cancellationToken = default)
+    {
+        RequireUser(userId);
+        return _repository.ListConversationsAsync(userId, limit, cursor, cancellationToken);
+    }
+
+    /// <inheritdoc/>
     public async Task<ConversationHistoryDto?> GetHistoryAsync(
         Guid conversationId,
         Guid userId,
