@@ -245,4 +245,70 @@ public class OpenAiCompatibleProviderTests
         thrown.Which.Should().NotBeOfType<ModelRateLimitedException>();
         thrown.Which.ToString().Should().NotContain(KeyA);
     }
+
+    // ── A single completion ──────────────────────────────────────────────────
+
+    private static async Task<(string Text, FakeChatCompletionsHandler Handler)> Complete(string option, string answer = "A title")
+    {
+        var handler = new FakeChatCompletionsHandler { Completion = answer };
+        var text = await Provider(handler).CompleteAsync(option, "Name this.", "What is a monad?", 42);
+        return (text, handler);
+    }
+
+    [Fact]
+    public async Task ACompletion_IsOneUnstreamedRequest_WithOnlyTheGivenInstructionAndContent()
+    {
+        var (_, handler) = await Complete("a");
+
+        var (request, _) = handler.Requests.Single();
+        request.RequestUri!.ToString().Should().Be("https://a.example/v1/chat/completions");
+        request.Headers.Authorization!.ToString().Should().Be($"Bearer {KeyA}");
+        var body = Body(handler);
+        (body.TryGetProperty("stream", out var stream) && stream.GetBoolean()).Should().BeFalse();
+        body.GetProperty("model").GetString().Should().Be("model-a");
+        body.GetProperty("reasoning_effort").GetString().Should().Be("low");
+        Messages(body).Should().Equal(("system", "Name this."), ("user", "What is a monad?"));
+        var cap = body.TryGetProperty("max_completion_tokens", out var completion) ? completion : body.GetProperty("max_tokens");
+        cap.GetInt32().Should().Be(42);
+    }
+
+    [Fact]
+    public async Task ACompletion_ReturnsTheAnswersText()
+    {
+        var (text, _) = await Complete("b", "Understanding Monads");
+
+        text.Should().Be("Understanding Monads");
+    }
+
+    [Fact]
+    public async Task ARateLimitedCompletion_IsReportedAsSuch_WithoutRetrying_OrRevealingTheKey()
+    {
+        var handler = new FakeChatCompletionsHandler
+        {
+            Status = HttpStatusCode.TooManyRequests,
+            ErrorBody = "{\"error\":{\"message\":\"Rate limit reached for key " + KeyA + "\"}}",
+        };
+
+        var act = () => Provider(handler).CompleteAsync("a", "Name this.", "Hi", 42);
+
+        var thrown = await act.Should().ThrowAsync<ModelRateLimitedException>();
+        thrown.Which.ToString().Should().NotContain(KeyA);
+        handler.Requests.Should().HaveCount(1);
+    }
+
+    [Fact]
+    public async Task AFailingCompletion_DoesNotRevealTheKey()
+    {
+        var handler = new FakeChatCompletionsHandler
+        {
+            Status = HttpStatusCode.Unauthorized,
+            ErrorBody = "{\"error\":{\"message\":\"Invalid API key: " + KeyA + "\"}}",
+        };
+
+        var act = () => Provider(handler).CompleteAsync("a", "Name this.", "Hi", 42);
+
+        var thrown = await act.Should().ThrowAsync<Exception>();
+        thrown.Which.Should().NotBeOfType<ModelRateLimitedException>();
+        thrown.Which.ToString().Should().NotContain(KeyA);
+    }
 }

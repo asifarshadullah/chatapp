@@ -111,6 +111,7 @@ public class ModelOptionsStartupTests
     [Theory]
     [InlineData("Ai:MaxHistoryMessages")]
     [InlineData("Ai:MaxReplyTokens")]
+    [InlineData("Ai:MaxTitleTokens")]
     public void ABoundThatIsNotPositive_RefusesToStart(string key)
     {
         var act = () => Start("Development", (key, "0"));

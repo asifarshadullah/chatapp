@@ -99,6 +99,10 @@ sequenceDiagram
         Api-->>Browser: event: token
     end
     Svc->>Mongo: Persist assistant message (also when stopped part-way)
+    opt First reply of a new conversation, complete
+        Svc->>Model: CompleteAsync(model, title instruction, first message)
+        Svc->>Mongo: Replace the first-message title
+    end
     Api-->>Browser: event: done
 ```
 

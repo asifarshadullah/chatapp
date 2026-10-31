@@ -86,6 +86,7 @@ Deploy an earlier commit. Either:
    | `Chat__DailyMessageLimit` | `50` | each user's messages per UTC day; lower it if the shared Groq allowance runs out |
    | `Ai__MaxHistoryMessages` | `10` | how many of a conversation's latest messages each request carries |
    | `Ai__MaxReplyTokens` | `800` | the longest reply, in tokens |
+   | `Ai__MaxTitleTokens` | `300` | the most a conversation's title may use, reasoning included; raise it if titles stay as the first message |
 
    Stripe is left unset until #30, so upgrading a plan fails. Google sign-in is left unset, and
    `/auth/google` answers 404.

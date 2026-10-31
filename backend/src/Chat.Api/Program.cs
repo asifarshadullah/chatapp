@@ -60,6 +60,7 @@ builder.Services.AddOptions<AiSettings>()
 builder.Services.AddSingleton<IValidateOptions<AiSettings>, AiSettingsValidator>();
 builder.Services.AddSingleton<IModelCatalog, ModelCatalog>();
 builder.Services.AddSingleton<IAiProvider, OpenAiCompatibleProvider>();
+builder.Services.AddSingleton<ITitleGenerator, ModelTitleGenerator>();
 
 // One user must not be able to use up a model allowance that every user shares.
 builder.Services.AddOptions<ChatSettings>()

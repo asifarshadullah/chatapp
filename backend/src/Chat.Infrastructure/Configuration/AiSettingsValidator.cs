@@ -34,6 +34,8 @@ public class AiSettingsValidator : IValidateOptions<AiSettings>
             failures.Add("Ai:MaxHistoryMessages must be greater than zero.");
         if (settings.MaxReplyTokens <= 0)
             failures.Add("Ai:MaxReplyTokens must be greater than zero.");
+        if (settings.MaxTitleTokens <= 0)
+            failures.Add("Ai:MaxTitleTokens must be greater than zero.");
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
     }
