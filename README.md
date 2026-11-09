@@ -326,7 +326,7 @@ The code is written with AI assistance, using Claude Code. Its working rules are
 
 ## Author
 
-Built by **Asif Md Arshadullah**
+Built by **Asif Muhammad Arshadullah**
 
 - GitHub: [@asifarshadullah](https://github.com/asifarshadullah)
 - LinkedIn: [asif-arshadullah](https://www.linkedin.com/in/asif-arshadullah)
