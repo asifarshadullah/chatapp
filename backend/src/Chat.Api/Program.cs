@@ -1,4 +1,5 @@
 using System.Text;
+using Chat.Api.Billing;
 using Chat.Application.Interfaces;
 using Chat.Application.Services;
 using Chat.Billing.Application.Interfaces;
@@ -62,28 +63,33 @@ builder.Services.AddSingleton<IModelCatalog, ModelCatalog>();
 builder.Services.AddSingleton<IAiProvider, OpenAiCompatibleProvider>();
 builder.Services.AddSingleton<ITitleGenerator, ModelTitleGenerator>();
 
-// One user must not be able to use up a model allowance that every user shares.
-builder.Services.AddOptions<ChatSettings>()
-    .Bind(builder.Configuration.GetSection("Chat"))
-    .Validate(s => s.DailyMessageLimit > 0, "Chat:DailyMessageLimit must be greater than zero.")
-    .ValidateOnStart();
+// One user must not be able to use up a model allowance that every user shares; how many
+// messages each user may send comes from their plan.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IDailyMessageQuota>(sp => new MongoDailyMessageQuota(
     sp.GetRequiredService<IMongoDatabase>(),
-    sp.GetRequiredService<IOptions<ChatSettings>>().Value.DailyMessageLimit,
     sp.GetRequiredService<TimeProvider>()));
 
 // Application layer services
 builder.Services.AddScoped<IChatService, ChatService>();
 
 // ── Billing ────────────────────────────────────────────────────────────────────
-builder.Services.Configure<StripeSettings>(builder.Configuration.GetSection("Stripe"));
+builder.Services.AddOptions<BillingSettings>()
+    .Bind(builder.Configuration.GetSection("Billing"))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<BillingSettings>, BillingSettingsValidator>();
+builder.Services.AddOptions<StripeSettings>()
+    .Bind(builder.Configuration.GetSection("Stripe"))
+    .Validate(s => s.Mode != CheckoutMode.Live || s.AllowLiveKey,
+        "Stripe:SecretKey is a live key, which takes real money; set Stripe:AllowLiveKey to true to use it.")
+    .ValidateOnStart();
 builder.Services.AddScoped<ISubscriptionRepository, MongoSubscriptionRepository>();
 builder.Services.AddScoped<IPlanRepository, MongoPlanRepository>();
 builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 builder.Services.AddScoped<IPaymentGateway, StripePaymentGateway>();
 builder.Services.AddScoped<IWebhookHandler, StripeWebhookHandler>();
 builder.Services.AddScoped<IPlanFeatureService, RealPlanFeatureService>();
+builder.Services.AddScoped<IDailyMessageAllowance, PlanDailyMessageAllowance>();
 
 // ── Identity ──────────────────────────────────────────────────────────────────
 // A secret anyone can read lets anyone forge a session. The old placeholder stays public in
@@ -209,13 +215,15 @@ app.MapFallbackToFile("index.html", uiFiles);
 app.MapFallback("/api/{**rest}", () => Results.NotFound());
 app.MapFallback("/auth/{**rest}", () => Results.NotFound());
 
-// Seed default roles if the collection is empty, let old daily message counts expire, and
-// index and backfill conversations for the conversation list
+// Seed default roles if the collection is empty, write the configured plans, let old daily
+// message counts expire, and index and backfill conversations for the conversation list
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IMongoDatabase>();
     await RoleSeeder.SeedAsync(db);
+    await PlanSeeder.SeedAsync(db, scope.ServiceProvider.GetRequiredService<IOptions<BillingSettings>>().Value);
     await MongoDailyMessageQuota.EnsureIndexesAsync(db);
+    await MongoSubscriptionRepository.EnsureIndexesAsync(db);
     await MongoChatRepository.EnsureIndexesAsync(db);
 }
 

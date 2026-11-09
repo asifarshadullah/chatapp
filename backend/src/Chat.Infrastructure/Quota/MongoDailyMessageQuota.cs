@@ -15,17 +15,14 @@ public class MongoDailyMessageQuota : IDailyMessageQuota
     private readonly IMongoCollection<BsonDocument> _counters;
     private readonly TimeProvider _clock;
 
-    public MongoDailyMessageQuota(IMongoDatabase database, int limit, TimeProvider clock)
+    public MongoDailyMessageQuota(IMongoDatabase database, TimeProvider clock)
     {
         _counters = database.GetCollection<BsonDocument>(CollectionName);
-        Limit = limit;
         _clock = clock;
     }
 
-    public int Limit { get; }
-
     /// <inheritdoc/>
-    public async Task<bool> TryConsumeAsync(Guid userId, CancellationToken ct = default)
+    public async Task<bool> TryConsumeAsync(Guid userId, int limit, CancellationToken ct = default)
     {
         var today = _clock.GetUtcNow().UtcDateTime.Date;
         var day = today.ToString("yyyy-MM-dd");
@@ -42,7 +39,7 @@ public class MongoDailyMessageQuota : IDailyMessageQuota
             new FindOneAndUpdateOptions<BsonDocument> { IsUpsert = true, ReturnDocument = ReturnDocument.After },
             ct);
 
-        return counter["count"].AsInt32 <= Limit;
+        return counter["count"].AsInt32 <= limit;
     }
 
     /// <summary>Lets MongoDB delete each day's counters once that day is long over.</summary>

@@ -1,4 +1,6 @@
+using Chat.Billing.Application.DTOs;
 using Chat.Billing.Application.Interfaces;
+using Chat.Billing.Domain.Entities;
 using Chat.Billing.Domain.Enums;
 
 namespace Chat.Billing.Infrastructure.Services;
@@ -37,4 +39,24 @@ public class RealPlanFeatureService : IPlanFeatureService
         var plan = await _plans.GetByIdAsync(subscription!.PlanId, ct);
         return plan?.Includes(featureEnum) ?? false;
     }
+
+    /// <inheritdoc />
+    public async Task<MessageAllowance> GetMessageAllowanceAsync(Guid userId, CancellationToken ct = default)
+    {
+        var subscription = await _subscriptions.GetByUserIdAsync(userId, ct);
+        var pro = await RequireAsync(PlanTier.Pro, ct);
+        if (subscription is { GrantsPlan: true })
+        {
+            var plan = await _plans.GetByIdAsync(subscription.PlanId, ct) ?? pro;
+            return new MessageAllowance(plan.DailyMessageLimit, null);
+        }
+
+        var free = await RequireAsync(PlanTier.Free, ct);
+        return new MessageAllowance(free.DailyMessageLimit, pro.DailyMessageLimit);
+    }
+
+    // Startup writes both plans, so a missing one means the database was changed by hand.
+    private async Task<Plan> RequireAsync(PlanTier tier, CancellationToken ct) =>
+        await _plans.GetByTierAsync(tier, ct)
+        ?? throw new InvalidOperationException($"The {tier} plan is missing; restart the app to write it.");
 }

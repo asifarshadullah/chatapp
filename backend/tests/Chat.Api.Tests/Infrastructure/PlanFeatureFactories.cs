@@ -1,3 +1,4 @@
+using Chat.Billing.Application.DTOs;
 using Chat.Billing.Application.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -27,6 +28,9 @@ public class AlwaysDisablePlanFeatureService : IPlanFeatureService
 {
     public Task<bool> IsEnabledAsync(string feature, Guid userId, CancellationToken ct = default)
         => Task.FromResult(false);
+
+    public Task<MessageAllowance> GetMessageAllowanceAsync(Guid userId, CancellationToken ct = default)
+        => Task.FromResult(new MessageAllowance(int.MaxValue, null));
 }
 
 /// <summary>
@@ -61,4 +65,7 @@ public class RecordingPlanFeatureService : IPlanFeatureService
         _checked.Enqueue(userId);
         return Task.FromResult(true);
     }
+
+    public Task<MessageAllowance> GetMessageAllowanceAsync(Guid userId, CancellationToken ct = default)
+        => Task.FromResult(new MessageAllowance(int.MaxValue, null));
 }

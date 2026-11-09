@@ -6,6 +6,14 @@ import { BillingPage } from './components/BillingPage'
 import { authService } from './services/authService'
 import { removeConversationFromUrl } from './services/conversationUrl'
 
+/** Stripe sends the user back to one of these after a checkout. */
+function returnFromCheckout(): 'success' | 'cancel' | undefined {
+  const path = window.location.pathname
+  if (path === '/billing/success') return 'success'
+  if (path === '/billing/cancel') return 'cancel'
+  return undefined
+}
+
 const theme = createTheme({
   palette: {
     background: {
@@ -25,7 +33,13 @@ function App() {
   const [isRestoring, setIsRestoring] = useState(
     () => !authService.isAuthenticated() && authService.hasSession(),
   )
-  const [view, setView] = useState<'chat' | 'billing'>('chat')
+  // Read before the user is known, so it survives restoring the session or signing in first.
+  const [returnedFrom, setReturnedFrom] = useState(returnFromCheckout)
+  const [view, setView] = useState<'chat' | 'billing'>(returnedFrom ? 'billing' : 'chat')
+
+  useEffect(() => {
+    if (returnedFrom) window.history.replaceState(null, '', '/')
+  }, [returnedFrom])
 
   useEffect(() => {
     if (!isRestoring) return
@@ -73,7 +87,13 @@ function App() {
         </Box>
       ) : isAuthenticated ? (
         view === 'billing' ? (
-          <BillingPage onBack={() => setView('chat')} />
+          <BillingPage
+            returnedFrom={returnedFrom}
+            onBack={() => {
+              setReturnedFrom(undefined)
+              setView('chat')
+            }}
+          />
         ) : (
           <ChatShell
             onLogout={endSession}

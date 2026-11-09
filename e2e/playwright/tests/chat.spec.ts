@@ -203,6 +203,28 @@ test.describe('Chat', () => {
     }
   });
 
+  test('Manage Plan shows Free and Pro, and whether upgrades are on', async ({ page }) => {
+    const chat = new ChatPage(page);
+    await chat.goto();
+
+    await page.getByRole('button', { name: 'Manage Plan' }).click();
+
+    // Locally the plans allow 1000 messages a day, so only their names are checked.
+    await expect(page.getByRole('region', { name: 'Free' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Pro' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Free' }).getByText('Current plan')).toBeVisible();
+    // Without Stripe keys checkout is off; with test keys in user secrets it is in test mode.
+    await expect(page.getByText(/Upgrades are turned off here|Stripe's test mode/)).toBeVisible();
+  });
+
+  test('returning from Stripe opens Manage Plan in the app', async ({ page }) => {
+    // The address Stripe sends a paying user back to must load the app, not reach the API.
+    await page.goto('/billing/success');
+
+    await expect(page.getByText(/payment was received/i)).toBeVisible();
+    await expect(page).toHaveURL(/\/$/);
+  });
+
   test('a reload during a reply keeps what was produced', async ({ page }) => {
     const chat = new ChatPage(page);
     await chat.goto();

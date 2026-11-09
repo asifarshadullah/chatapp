@@ -378,7 +378,7 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
     {
         await using var factory = new ChatApiFactory();
         var client = factory.CreateClient();
-        factory.Quota.Limit = 50;
+        factory.Allowance.Allowance = new(50, null);
         for (var i = 0; i < 50; i++)
         {
             using var accepted = await EventStream.PostMessageAsync(client, new { message = "Hi" }, user: Alice);
@@ -394,11 +394,27 @@ public class ChatStreamingTests : IClassFixture<ChatApiFactory>
     }
 
     [Fact]
+    public async Task PostMessage_OverTheDailyLimitOnFree_SaysWhatProAllows()
+    {
+        await using var factory = new ChatApiFactory();
+        var client = factory.CreateClient();
+        factory.Allowance.Allowance = new(1, 100);
+        using (var accepted = await EventStream.PostMessageAsync(client, new { message = "Hi" }, user: Alice))
+            await EventStream.ReadAllEventsAsync(accepted);
+
+        using var response = await EventStream.PostMessageAsync(client, new { message = "One more" }, user: Alice);
+
+        await ShouldBeRefused(response, HttpStatusCode.TooManyRequests,
+            "You have reached today's limit of 1 messages. It resets at midnight UTC. "
+            + "Pro allows 100 messages a day: choose it on the Manage Plan page.");
+    }
+
+    [Fact]
     public async Task PostMessage_WithAConfiguredLimitOfThree_RefusesTheFourth()
     {
         await using var factory = new ChatApiFactory();
         var client = factory.CreateClient();
-        factory.Quota.Limit = 3;
+        factory.Allowance.Allowance = new(3, null);
 
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 4; i++)

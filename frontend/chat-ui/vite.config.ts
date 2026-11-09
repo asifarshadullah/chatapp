@@ -14,6 +14,13 @@ export default defineConfig({
         target: 'http://localhost:5064',
         changeOrigin: true,
       },
+      '/billing': {
+        target: 'http://localhost:5064',
+        // Keeps the browser's host, so Stripe's return addresses point back at the dev server.
+        changeOrigin: false,
+        // Stripe's return to /billing/success or /billing/cancel is a page of the app.
+        bypass: (req) => (req.headers.accept?.includes('text/html') ? '/index.html' : undefined),
+      },
     },
   },
   test: {

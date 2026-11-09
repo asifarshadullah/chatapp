@@ -23,10 +23,10 @@ A ChatGPT-style chat application built end-to-end with Clean Architecture, TDD, 
 - **Saved conversations** — a sidebar lists your conversations, most recently active first, from `GET /api/chat/conversations` a page at a time; each is titled by the model after its first reply
 - **Any OpenAI-compatible model** — one provider for the chat completions API: Ollama locally, Groq when deployed, and others by configuration alone
 - **Settings** — a gear button opens a Settings dialog whose Model dropdown lists the models this deployment offers; the choice is remembered in the browser
-- **Fair use** — each user may send 50 messages per UTC day, so no one can use up a shared model allowance
+- **Fair use** — each user may send 10 messages per UTC day on Free and 100 on Pro, so no one can use up a shared model allowance
 - **Authentication** — JWT access tokens and Google OAuth 2.0
 - **Authorization** — role-based permission policies (`CanChat`, `AdminOnly`, etc.) with 5-minute cached role lookups
-- **Billing** — Stripe Checkout, webhook-driven subscription lifecycle, plan-based feature gating
+- **Billing** — Free and Pro plans, upgraded through Stripe Checkout in test mode; Stripe's webhooks keep each user's subscription in step, and the daily message limit follows the plan
 - **Persistence** — MongoDB 7 via Docker Compose with typed document mappings
 - **Testing** — automated tests across 3 levels (unit, integration, E2E) following strict TDD
 - **Deployment** — one Docker image serves the UI and the API from one origin; deploys are started by hand from GitHub Actions, only after the tests pass
@@ -235,23 +235,21 @@ Deploys are started by hand from **Actions → Deploy** on a branch you pick, an
 <summary><b>Optional: enable Stripe billing</b></summary>
 
 1. Get test-mode keys from [Stripe Dashboard](https://dashboard.stripe.com/test/apikeys)
-2. Create two test-mode products (Pro and Enterprise) and copy their price IDs
-3. Set values in `backend/src/Chat.Api/appsettings.json`:
-   ```json
-   "Stripe": {
-     "SecretKey": "sk_test_...",
-     "WebhookSecret": "whsec_...",
-     "PriceIds": {
-       "Pro": "price_...",
-       "Enterprise": "price_..."
-     }
-   }
-   ```
-4. Run the Stripe CLI to forward webhooks during local dev:
+2. Create a test-mode product, Pro, with a monthly price of USD 19, and copy the price ID
+3. Run the Stripe CLI to forward webhooks during local dev. It prints the webhook signing secret (`whsec_...`):
    ```bash
-   stripe listen --forward-to localhost:5064/webhooks/stripe
+   stripe listen --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_succeeded,invoice.payment_failed --forward-to localhost:5064/webhooks/stripe
    ```
-5. The "Manage Plan" button in the chat header opens the billing page.
+4. Keep the three values in user secrets, out of the repository:
+   ```bash
+   cd backend/src/Chat.Api
+   dotnet user-secrets set "Stripe:SecretKey" "sk_test_..."
+   dotnet user-secrets set "Stripe:WebhookSecret" "whsec_..."
+   dotnet user-secrets set "Stripe:PriceIds:Pro" "price_..."
+   ```
+5. Restart the backend. The "Manage Plan" button in the chat header opens the billing page, which now says it is in test mode.
+
+Development allows 1000 messages a day on both plans, so the end-to-end tests never run into the limit. To see the real limits locally, start the backend with `Billing__Plans__Free__DailyMessages=10 Billing__Plans__Pro__DailyMessages=100`. The app refuses a live key (`sk_live_...`) unless `Stripe:AllowLiveKey` is `true`.
 
 </details>
 
@@ -294,7 +292,7 @@ Each message is a `POST /api/chat/messages` whose response streams the reply as 
 
 ### 4. Feature gating via `IPlanFeatureService` in `Chat.Billing.Application`
 
-Cross-cutting concerns often end up in the wrong layer. Feature flags aren't an Identity concern (they're not about *who* you are) and aren't a Chat concern (they're not about *how* messaging works) — they're a billing concern (what your plan *entitles* you to). The chat endpoint calls `IPlanFeatureService.IsEnabledAsync("chat", userId)` before streaming; `RealPlanFeatureService` lives in Billing.Infrastructure and makes the subscription/plan decision. Placing the interface in the billing context, not in `Chat.Application`, is what keeps the dependency graph one-way.
+Cross-cutting concerns often end up in the wrong layer. Feature flags aren't an Identity concern (they're not about *who* you are) and aren't a Chat concern (they're not about *how* messaging works) — they're a billing concern (what your plan *entitles* you to). The chat endpoint calls `IPlanFeatureService.IsEnabledAsync("chat", userId)` before streaming; `RealPlanFeatureService` lives in Billing.Infrastructure and makes the subscription/plan decision. Placing the interface in the billing context, not in `Chat.Application`, is what keeps the dependency graph one-way. The daily message limit follows the same rule: Chat asks its own `IDailyMessageAllowance` port, and a small adapter in the API project answers it from the user's plan, so Chat never references Billing.
 
 Longer write-ups live in [docs/architecture/](docs/architecture/) — the trade-offs behind the context split and the MongoDB document design, and a scenario followed from requirement through design to a retrospective on where the up-front design turned out to be wrong.
 
@@ -308,10 +306,21 @@ The code is written with AI assistance, using Claude Code. Its working rules are
 
 ---
 
+## Try upgrading
+
+On the [live demo](https://chatapp-2uzj.onrender.com), Free allows 10 messages a day.
+
+1. Open **Manage Plan** in the chat header, and choose **Subscribe** on Pro.
+2. Pay on Stripe's test checkout with card `4242 4242 4242 4242`, any future expiry date and any CVC. Nothing is charged.
+3. Back in the app, Manage Plan shows Pro within a few seconds, and you can send 100 messages a day.
+4. **Cancel subscription** keeps Pro until the end of the month you paid for, and shows the date it ends.
+
+---
+
 ## Known limitations
 
-- The live demo offers only Groq's free tier, about 100 messages a day shared by all users. Each user may send 50 messages a day.
-- Plan upgrades do not work on the live demo yet ([#30](https://github.com/asifarshadullah/chatapp/issues/30)), and Google sign-in is set up only for local runs.
+- The live demo offers only Groq's free tier, about 100 messages a day shared by all users, whatever their plans allow.
+- Upgrades run in Stripe's test mode, so no real payment is possible, and anyone can reach Pro with the test card. Google sign-in is set up only for local runs.
 - A reload while a reply is streaming keeps what was produced but stops the rest ([#27](https://github.com/asifarshadullah/chatapp/issues/27)).
 
 ## Roadmap
