@@ -1,5 +1,8 @@
-import type { CheckoutSessionDto, PlanDto, SubscriptionStatusDto } from '../types/chat'
+import type { CheckoutMode, CheckoutSessionDto, PlanDto, SubscriptionStatusDto } from '../types/chat'
 import { authorizedFetch } from './authorizedFetch'
+
+/** The server has no payment provider set up. Its message is meant for the user. */
+export class UpgradesUnavailableError extends Error {}
 
 class BillingService {
   async getPlans(): Promise<PlanDto[]> {
@@ -14,15 +17,22 @@ class BillingService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ planId }),
     })
+    if (response.status === 503) throw new UpgradesUnavailableError(await response.text())
     if (!response.ok) throw new Error(`${response.status}`)
     return response.json()
   }
 
-  async getSubscription(): Promise<SubscriptionStatusDto | null> {
+  async getSubscription(): Promise<SubscriptionStatusDto> {
     const response = await authorizedFetch('/billing/subscription')
-    if (response.status === 404) return null
     if (!response.ok) throw new Error(`${response.status}`)
     return response.json()
+  }
+
+  async getCheckoutMode(): Promise<CheckoutMode> {
+    const response = await authorizedFetch('/billing/checkout-mode')
+    if (!response.ok) throw new Error(`${response.status}`)
+    const { mode } = (await response.json()) as { mode: CheckoutMode }
+    return mode
   }
 
   async cancelSubscription(): Promise<void> {

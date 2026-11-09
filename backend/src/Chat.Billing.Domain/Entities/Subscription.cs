@@ -2,30 +2,26 @@ using Chat.Billing.Domain.Enums;
 
 namespace Chat.Billing.Domain.Entities;
 
-/// <summary>Represents a user's subscription to a billing plan.</summary>
+/// <summary>
+/// A user's subscription to a paid plan, as Stripe last reported it. Each user has at most one.
+/// </summary>
 public class Subscription
 {
     public Guid Id { get; }
     public Guid UserId { get; }
-    public Guid PlanId { get; private set; }
+    public Guid PlanId { get; }
     public SubscriptionStatus Status { get; private set; }
-    public DateTime CurrentPeriodEnd { get; private set; }
+    public DateTime CurrentPeriodEnd { get; }
     public string StripeSubscriptionId { get; }
 
-    /// <summary>Creates a new subscription (starts in Trialing status).</summary>
-    public Subscription(Guid userId, Guid planId, string stripeSubscriptionId, DateTime periodEnd)
-    {
-        Id = Guid.NewGuid();
-        UserId = userId;
-        PlanId = planId;
-        StripeSubscriptionId = stripeSubscriptionId;
-        Status = SubscriptionStatus.Trialing;
-        CurrentPeriodEnd = periodEnd;
-    }
+    /// <summary>Whether the subscription ends when the current period does, rather than renewing.</summary>
+    public bool CancelAtPeriodEnd { get; }
 
-    /// <summary>Reconstructs a subscription from persistent storage.</summary>
+    /// <summary>Whether the user has the subscription's plan now; otherwise they are on Free.</summary>
+    public bool GrantsPlan => Status is SubscriptionStatus.Active or SubscriptionStatus.Trialing;
+
     public Subscription(Guid id, Guid userId, Guid planId, SubscriptionStatus status,
-        DateTime periodEnd, string stripeSubscriptionId)
+        DateTime periodEnd, string stripeSubscriptionId, bool cancelAtPeriodEnd = false)
     {
         Id = id;
         UserId = userId;
@@ -33,23 +29,9 @@ public class Subscription
         Status = status;
         CurrentPeriodEnd = periodEnd;
         StripeSubscriptionId = stripeSubscriptionId;
-    }
-
-    /// <summary>Activates the subscription. Throws if already cancelled.</summary>
-    public void Activate(DateTime newPeriodEnd)
-    {
-        if (Status == SubscriptionStatus.Cancelled)
-            throw new InvalidOperationException("Cannot activate a cancelled subscription.");
-        Status = SubscriptionStatus.Active;
-        CurrentPeriodEnd = newPeriodEnd;
+        CancelAtPeriodEnd = cancelAtPeriodEnd;
     }
 
     /// <summary>Cancels the subscription.</summary>
     public void Cancel() => Status = SubscriptionStatus.Cancelled;
-
-    /// <summary>Marks the subscription as past due.</summary>
-    public void MarkPastDue() => Status = SubscriptionStatus.PastDue;
-
-    /// <summary>Switches the subscription to a different plan.</summary>
-    public void ChangePlan(Guid newPlanId) => PlanId = newPlanId;
 }

@@ -19,6 +19,9 @@ public class FakePlanRepository : IPlanRepository
 
     public Task<Plan?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult(_plans.FirstOrDefault(p => p.Id == id));
+
+    public Task<Plan?> GetByTierAsync(PlanTier tier, CancellationToken ct = default)
+        => Task.FromResult(_plans.FirstOrDefault(p => p.Tier == tier));
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -29,7 +32,7 @@ public class RealPlanFeatureServiceTests
     private static readonly Guid ProPlanId = Guid.NewGuid();
 
     private static readonly Plan ProPlan = new(
-        ProPlanId, "Pro", PlanTier.Pro, 19m,
+        ProPlanId, "Pro", PlanTier.Pro, 19m, 100,
         [Feature.Chat, Feature.DocumentUpload]);
 
     private static Subscription ActiveProSub() =>

@@ -17,18 +17,20 @@ public class ChatService : IChatService
     private readonly IChatRepository _repository;
     private readonly IAiProvider _aiProvider;
     private readonly IDailyMessageQuota _quota;
+    private readonly IDailyMessageAllowance _allowance;
     private readonly ITitleGenerator _titles;
     private readonly ILogger<ChatService> _logger;
 
     /// <summary>
     /// Initializes a new instance of <see cref="ChatService"/>.
     /// </summary>
-    public ChatService(IChatRepository repository, IAiProvider aiProvider, IDailyMessageQuota quota, ITitleGenerator titles,
-        ILogger<ChatService> logger)
+    public ChatService(IChatRepository repository, IAiProvider aiProvider, IDailyMessageQuota quota,
+        IDailyMessageAllowance allowance, ITitleGenerator titles, ILogger<ChatService> logger)
     {
         _repository = repository;
         _aiProvider = aiProvider;
         _quota = quota;
+        _allowance = allowance;
         _titles = titles;
         _logger = logger;
     }
@@ -51,8 +53,9 @@ public class ChatService : IChatService
 
         // Counted only once the message is accepted, and before anything is created or saved,
         // so a refused message leaves nothing behind.
-        if (!await _quota.TryConsumeAsync(userId, ct))
-            throw new DailyMessageLimitReachedException(_quota.Limit);
+        var allowance = await _allowance.GetAsync(userId, ct);
+        if (!await _quota.TryConsumeAsync(userId, allowance.Limit, ct))
+            throw new DailyMessageLimitReachedException(allowance.Limit, allowance.UpgradeLimit);
 
         var conversation = existing ?? await _repository.CreateConversationAsync(userId, ConversationTitle.From(content), ct);
 

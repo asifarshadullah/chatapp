@@ -9,14 +9,18 @@ public class Plan
     public string Name { get; }
     public PlanTier Tier { get; }
     public decimal PricePerMonth { get; }
+
+    /// <summary>Messages a user on this plan may send per UTC day.</summary>
+    public int DailyMessageLimit { get; }
     public IReadOnlyList<Feature> Features { get; }
 
-    public Plan(Guid id, string name, PlanTier tier, decimal pricePerMonth, IEnumerable<Feature> features)
+    public Plan(Guid id, string name, PlanTier tier, decimal pricePerMonth, int dailyMessageLimit, IEnumerable<Feature> features)
     {
         Id = id;
         Name = name;
         Tier = tier;
         PricePerMonth = pricePerMonth;
+        DailyMessageLimit = dailyMessageLimit;
         Features = features.ToList().AsReadOnly();
     }
 

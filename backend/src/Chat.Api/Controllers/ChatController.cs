@@ -114,9 +114,10 @@ public class ChatController : ControllerBase
         }
         catch (DailyMessageLimitReachedException ex)
         {
-            return Problem(
-                detail: $"You have reached today's limit of {ex.Limit} messages. It resets at midnight UTC.",
-                statusCode: StatusCodes.Status429TooManyRequests);
+            var detail = $"You have reached today's limit of {ex.Limit} messages. It resets at midnight UTC.";
+            if (ex.UpgradeLimit is { } upgradeLimit)
+                detail += $" Pro allows {upgradeLimit} messages a day: choose it on the Manage Plan page.";
+            return Problem(detail: detail, statusCode: StatusCodes.Status429TooManyRequests);
         }
         catch (ModelRateLimitedException ex)
         {

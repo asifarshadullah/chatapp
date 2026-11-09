@@ -28,6 +28,9 @@ public class ChatApiFactory : WebApplicationFactory<Program>
     /// <summary>The daily message counter every request uses, so a test can set a limit.</summary>
     public InMemoryDailyMessageQuota Quota => (InMemoryDailyMessageQuota)Services.GetRequiredService<IDailyMessageQuota>();
 
+    /// <summary>Every user's daily allowance, so a test can set a limit.</summary>
+    public FakeDailyMessageAllowance Allowance => (FakeDailyMessageAllowance)Services.GetRequiredService<IDailyMessageAllowance>();
+
     /// <summary>The fake AI model every request uses, exposed so tests can count its calls.</summary>
     public FakeAiProvider Ai => (FakeAiProvider)Services.GetRequiredService<IAiProvider>();
 
@@ -64,6 +67,10 @@ public class ChatApiFactory : WebApplicationFactory<Program>
             if (quotaDescriptor is not null)
                 services.Remove(quotaDescriptor);
             services.AddSingleton<IDailyMessageQuota, InMemoryDailyMessageQuota>();
+            var allowanceDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IDailyMessageAllowance));
+            if (allowanceDescriptor is not null)
+                services.Remove(allowanceDescriptor);
+            services.AddSingleton<IDailyMessageAllowance, FakeDailyMessageAllowance>();
 
             // Authenticate every request as the caller named in the test headers.
             services.AddAuthentication("TestScheme")

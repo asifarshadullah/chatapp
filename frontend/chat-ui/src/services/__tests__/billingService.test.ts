@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { billingService } from '../billingService'
+import { billingService, UpgradesUnavailableError } from '../billingService'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -49,6 +49,24 @@ describe('getPlans', () => {
 // ── FB1.2: subscribe ──────────────────────────────────────────────────────────
 
 describe('subscribe', () => {
+  it('subscribe_whenUpgradesAreOff_raisesTheServersMessage', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'Upgrades are off.' })
+
+    const failure = billingService.subscribe('plan-id-pro')
+
+    await expect(failure).rejects.toBeInstanceOf(UpgradesUnavailableError)
+    await expect(failure).rejects.toThrow('Upgrades are off.')
+  })
+
+  it('subscribe_whenAnythingElseFails_raisesAnOrdinaryError', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 })
+
+    const failure = billingService.subscribe('plan-id-pro')
+
+    await expect(failure).rejects.toThrow('500')
+    await expect(failure).rejects.not.toBeInstanceOf(UpgradesUnavailableError)
+  })
+
   it('subscribe_returnsCheckoutUrl', async () => {
     const dto = { checkoutUrl: 'https://checkout.stripe.com/pay/cs_test_123', sessionId: 'cs_test_123' }
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => dto })
@@ -68,7 +86,13 @@ describe('subscribe', () => {
 
 describe('getSubscription', () => {
   it('getSubscription_returnsStatus', async () => {
-    const status = { planName: 'Pro', tier: 'Pro', status: 'Active', currentPeriodEnd: '2025-12-31T00:00:00Z' }
+    const status = {
+      planName: 'Pro',
+      tier: 'Pro',
+      status: 'Active',
+      currentPeriodEnd: '2025-12-31T00:00:00Z',
+      cancelAtPeriodEnd: false,
+    }
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => status })
 
     const result = await billingService.getSubscription()
@@ -79,12 +103,38 @@ describe('getSubscription', () => {
     expect(result).toEqual(status)
   })
 
-  it('getSubscription_returnsNull_when404', async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 404 })
+  it('getSubscription_returnsFree_forAUserWithoutAPaidPlan', async () => {
+    const free = { planName: 'Free', tier: 'Free', status: null, currentPeriodEnd: null, cancelAtPeriodEnd: false }
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => free })
 
-    const result = await billingService.getSubscription()
+    expect(await billingService.getSubscription()).toEqual(free)
+  })
 
-    expect(result).toBeNull()
+  it('getSubscription_throws_whenTheRequestFails', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 })
+
+    await expect(billingService.getSubscription()).rejects.toThrow('500')
+  })
+})
+
+// ── The checkout mode ─────────────────────────────────────────────────────────
+
+describe('getCheckoutMode', () => {
+  it('getCheckoutMode_returnsTheMode', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ mode: 'test' }) })
+
+    const mode = await billingService.getCheckoutMode()
+
+    expect(mockFetch).toHaveBeenCalledWith('/billing/checkout-mode', {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    })
+    expect(mode).toBe('test')
+  })
+
+  it('getCheckoutMode_throws_whenTheRequestFails', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 })
+
+    await expect(billingService.getCheckoutMode()).rejects.toThrow('500')
   })
 })
 

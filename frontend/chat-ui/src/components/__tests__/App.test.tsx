@@ -31,7 +31,14 @@ vi.mock('../../services/chatApi', async (importOriginal) => ({
 vi.mock('../../services/billingService', () => ({
   billingService: {
     getPlans: vi.fn().mockResolvedValue([]),
-    getSubscription: vi.fn().mockResolvedValue(null),
+    getSubscription: vi.fn().mockResolvedValue({
+      planName: 'Free',
+      tier: 'Free',
+      status: null,
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+    }),
+    getCheckoutMode: vi.fn().mockResolvedValue('off'),
     subscribe: vi.fn(),
     cancelSubscription: vi.fn(),
   },
@@ -150,6 +157,41 @@ it('App_whenAuthenticated_canNavigateToBillingView', async () => {
   await waitFor(() => {
     expect(screen.getByRole('textbox')).toBeInTheDocument()
   })
+})
+
+// ── Returning from Stripe ────────────────────────────────────────────────────
+
+it('opens Manage Plan after paying at Stripe, and leaves the return address', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  window.history.replaceState(null, '', '/billing/success')
+
+  render(<App />)
+
+  expect(await screen.findByText(/payment was received/i)).toBeInTheDocument()
+  expect(window.location.pathname).toBe('/')
+})
+
+it('opens Manage Plan after cancelling at Stripe', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(true)
+  window.history.replaceState(null, '', '/billing/cancel')
+
+  render(<App />)
+
+  expect(await screen.findByText('Checkout was cancelled. Nothing was charged.')).toBeInTheDocument()
+  expect(window.location.pathname).toBe('/')
+})
+
+it('opens Manage Plan after Stripe once the user has signed in', async () => {
+  vi.mocked(authService.isAuthenticated).mockReturnValue(false)
+  vi.mocked(authService.login).mockResolvedValue({ accessToken: 'tok', expiresAt: '', userId: 'uid' })
+  window.history.replaceState(null, '', '/billing/success')
+
+  render(<App />)
+  await userEvent.type(screen.getByLabelText(/email/i), 'user@test.com')
+  await userEvent.type(screen.getByLabelText(/password/i), 'Password123')
+  await userEvent.click(screen.getByRole('button', { name: /login/i }))
+
+  expect(await screen.findByText(/payment was received/i)).toBeInTheDocument()
 })
 
 // ── Cycle FA3.3 ──────────────────────────────────────────────────────────────

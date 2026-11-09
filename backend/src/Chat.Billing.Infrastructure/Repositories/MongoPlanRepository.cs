@@ -1,5 +1,6 @@
 using Chat.Billing.Application.Interfaces;
 using Chat.Billing.Domain.Entities;
+using Chat.Billing.Domain.Enums;
 using Chat.Billing.Infrastructure.Data;
 using MongoDB.Driver;
 
@@ -29,6 +30,13 @@ public class MongoPlanRepository : IPlanRepository
         return doc is null ? null : ToEntity(doc);
     }
 
+    /// <inheritdoc />
+    public async Task<Plan?> GetByTierAsync(PlanTier tier, CancellationToken ct = default)
+    {
+        var doc = await _collection.Find(d => d.Tier == tier).FirstOrDefaultAsync(ct);
+        return doc is null ? null : ToEntity(doc);
+    }
+
     private static Plan ToEntity(PlanDocument doc) =>
-        new(doc.Id, doc.Name, doc.Tier, doc.PricePerMonth, doc.Features);
+        new(doc.Id, doc.Name, doc.Tier, doc.PricePerMonth, doc.DailyMessageLimit, doc.Features);
 }

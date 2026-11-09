@@ -99,13 +99,14 @@ public class ModelOptionsStartupTests
     }
 
     [Theory]
-    [InlineData("0")]
-    [InlineData("-5")]
-    public void ADailyMessageLimitThatIsNotPositive_RefusesToStart(string limit)
+    [InlineData("Billing:Plans:Free:DailyMessages", "0")]
+    [InlineData("Billing:Plans:Pro:DailyMessages", "-5")]
+    [InlineData("Billing:Plans:Pro:PricePerMonth", "-1")]
+    public void APlanSettingThatMakesNoSense_RefusesToStart(string key, string value)
     {
-        var act = () => Start("Development", ("Chat:DailyMessageLimit", limit));
+        var act = () => Start("Development", (key, value));
 
-        act.Should().Throw<Exception>().WithMessage("*Chat:DailyMessageLimit*");
+        act.Should().Throw<Exception>().WithMessage($"*{key}*");
     }
 
     [Theory]

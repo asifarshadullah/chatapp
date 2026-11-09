@@ -20,55 +20,66 @@ public class MongoDailyMessageQuotaTests : IClassFixture<MongoDbFixture>
         _fixture = fixture;
     }
 
-    private MongoDailyMessageQuota Quota(int limit) => new(_fixture.Database, limit, _clock);
+    private MongoDailyMessageQuota Quota() => new(_fixture.Database, _clock);
 
     [Fact]
     public async Task UpToTheLimit_IsAllowed_AndTheNextIsNot()
     {
-        var quota = Quota(3);
+        var quota = Quota();
         var user = Guid.NewGuid();
 
         var results = new List<bool>();
         for (var i = 0; i < 4; i++)
-            results.Add(await quota.TryConsumeAsync(user));
+            results.Add(await quota.TryConsumeAsync(user, 3));
 
         results.Should().Equal(true, true, true, false);
-        quota.Limit.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task AHigherLimit_TheSameDay_AcceptsTheNextMessage()
+    {
+        var quota = Quota();
+        var user = Guid.NewGuid();
+        for (var i = 0; i < 10; i++)
+            await quota.TryConsumeAsync(user, 10);
+        (await quota.TryConsumeAsync(user, 10)).Should().BeFalse();
+
+        (await quota.TryConsumeAsync(user, 100)).Should().BeTrue();
     }
 
     [Fact]
     public async Task OneUsersLimit_DoesNotAffectAnother()
     {
-        var quota = Quota(1);
+        var quota = Quota();
         var first = Guid.NewGuid();
-        await quota.TryConsumeAsync(first);
-        (await quota.TryConsumeAsync(first)).Should().BeFalse();
+        await quota.TryConsumeAsync(first, 1);
+        (await quota.TryConsumeAsync(first, 1)).Should().BeFalse();
 
-        (await quota.TryConsumeAsync(Guid.NewGuid())).Should().BeTrue();
+        (await quota.TryConsumeAsync(Guid.NewGuid(), 1)).Should().BeTrue();
     }
 
     [Fact]
     public async Task TheLimit_ResetsAtMidnightUtc()
     {
-        var quota = Quota(1);
+        var quota = Quota();
         var user = Guid.NewGuid();
-        await quota.TryConsumeAsync(user);
-        (await quota.TryConsumeAsync(user)).Should().BeFalse();
+        await quota.TryConsumeAsync(user, 1);
+        (await quota.TryConsumeAsync(user, 1)).Should().BeFalse();
 
         _clock.Now = _clock.Now.AddMinutes(31); // 00:01 UTC the next day
 
-        (await quota.TryConsumeAsync(user)).Should().BeTrue();
+        (await quota.TryConsumeAsync(user, 1)).Should().BeTrue();
     }
 
     [Fact]
     public async Task MessagesSentAtOnce_CannotPassTheLimit()
     {
-        var quota = Quota(5);
+        var quota = Quota();
         var user = Guid.NewGuid();
         for (var i = 0; i < 4; i++)
-            await quota.TryConsumeAsync(user);
+            await quota.TryConsumeAsync(user, 5);
 
-        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => quota.TryConsumeAsync(user)));
+        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => quota.TryConsumeAsync(user, 5)));
 
         results.Count(allowed => allowed).Should().Be(1);
     }
@@ -76,10 +87,10 @@ public class MongoDailyMessageQuotaTests : IClassFixture<MongoDbFixture>
     [Fact]
     public async Task TheFirstMessagesOfTheDay_RacingToCreateTheCounter_AllCount()
     {
-        var quota = Quota(100);
+        var quota = Quota();
         var user = Guid.NewGuid();
 
-        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => quota.TryConsumeAsync(user)));
+        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => quota.TryConsumeAsync(user, 100)));
 
         results.Should().OnlyContain(allowed => allowed);
         var counter = await _fixture.Database.GetCollection<BsonDocument>(MongoDailyMessageQuota.CollectionName)

@@ -1,3 +1,4 @@
+using Chat.Api.Billing;
 using Chat.Application.Interfaces;
 using Chat.Infrastructure.AI;
 using Chat.Infrastructure.Quota;
@@ -29,15 +30,13 @@ public class ModelWiringTests
     }
 
     [Fact]
-    public void TheConfiguredDailyLimit_ReachesTheMongoCounter()
+    public void TheDailyLimit_IsCountedInMongo_AgainstTheUsersPlan()
     {
-        using var app = Start(("Chat:DailyMessageLimit", "3"));
+        using var app = Start();
         using var scope = app.Services.CreateScope();
 
-        var quota = scope.ServiceProvider.GetRequiredService<IDailyMessageQuota>();
-
-        quota.Should().BeOfType<MongoDailyMessageQuota>();
-        quota.Limit.Should().Be(3);
+        scope.ServiceProvider.GetRequiredService<IDailyMessageQuota>().Should().BeOfType<MongoDailyMessageQuota>();
+        scope.ServiceProvider.GetRequiredService<IDailyMessageAllowance>().Should().BeOfType<PlanDailyMessageAllowance>();
     }
 
     [Fact]

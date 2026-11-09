@@ -1,4 +1,5 @@
 using Chat.Billing.Domain.Entities;
+using Chat.Billing.Domain.Enums;
 
 namespace Chat.Billing.Application.Interfaces;
 
@@ -10,4 +11,7 @@ public interface IPlanRepository
 
     /// <summary>Returns a plan by its ID, or null if not found.</summary>
     Task<Plan?> GetByIdAsync(Guid id, CancellationToken ct = default);
+
+    /// <summary>Returns the plan of a tier, or null if there is none.</summary>
+    Task<Plan?> GetByTierAsync(PlanTier tier, CancellationToken ct = default);
 }

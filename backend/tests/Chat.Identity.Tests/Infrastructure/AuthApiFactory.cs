@@ -5,8 +5,10 @@ using System.Security.Claims;
 using System.Text;
 using Chat.Application.DTOs;
 using Chat.Application.Interfaces;
+using Chat.Billing.Application.DTOs;
 using Chat.Billing.Application.Interfaces;
 using Chat.Billing.Domain.Entities;
+using Chat.Billing.Domain.Enums;
 using Chat.Domain.Entities;
 using Chat.Domain.Enums;
 using Chat.Identity.Application.DTOs;
@@ -283,8 +285,7 @@ public class FakeAiProvider : IAiProvider
 
 public class UnlimitedDailyMessageQuota : IDailyMessageQuota
 {
-    public int Limit => int.MaxValue;
-    public Task<bool> TryConsumeAsync(Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<bool> TryConsumeAsync(Guid userId, int limit, CancellationToken ct = default) => Task.FromResult(true);
 }
 
 public class StubSubscriptionRepository : ISubscriptionRepository
@@ -300,9 +301,13 @@ public class StubPlanRepository : IPlanRepository
         => Task.FromResult<IReadOnlyList<Plan>>(new List<Plan>().AsReadOnly());
     public Task<Plan?> GetByIdAsync(Guid id, CancellationToken ct = default)
         => Task.FromResult<Plan?>(null);
+    public Task<Plan?> GetByTierAsync(PlanTier tier, CancellationToken ct = default)
+        => Task.FromResult<Plan?>(null);
 }
 
 public class AlwaysEnabledFeatureService : IPlanFeatureService
 {
     public Task<bool> IsEnabledAsync(string feature, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<MessageAllowance> GetMessageAllowanceAsync(Guid userId, CancellationToken ct = default)
+        => Task.FromResult(new MessageAllowance(int.MaxValue, null));
 }

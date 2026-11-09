@@ -22,6 +22,7 @@ public class ChatServiceTests
     private readonly FakeChatRepository _repository;
     private readonly FakeAiProvider _aiProvider;
     private readonly FakeQuota _quota;
+    private readonly FakeAllowance _allowance;
     private readonly FakeTitleGenerator _titles;
     private readonly ChatService _sut;
 
@@ -30,8 +31,9 @@ public class ChatServiceTests
         _repository = new FakeChatRepository();
         _aiProvider = new FakeAiProvider();
         _quota = new FakeQuota();
+        _allowance = new FakeAllowance();
         _titles = new FakeTitleGenerator();
-        _sut = new ChatService(_repository, _aiProvider, _quota, _titles, NullLogger<ChatService>.Instance);
+        _sut = new ChatService(_repository, _aiProvider, _quota, _allowance, _titles, NullLogger<ChatService>.Instance);
     }
 
     // ── StreamResponseAsync ─────────────────────────────────────────────────
@@ -416,7 +418,8 @@ public class ChatServiceTests
         };
 
         var thrown = await act.Should().ThrowAsync<DailyMessageLimitReachedException>();
-        thrown.Which.Limit.Should().Be(FakeQuota.LimitValue);
+        thrown.Which.Limit.Should().Be(7);
+        thrown.Which.UpgradeLimit.Should().Be(100);
         _repository.ConversationCount.Should().Be(0, "a refused first message must leave no empty conversation");
         _aiProvider.ReceivedHistory.Should().BeNull();
     }
@@ -450,6 +453,18 @@ public class ChatServiceTests
 
         await act.Should().ThrowAsync<ConversationNotFoundException>();
         _quota.Consumed.Should().Be(consumedBefore);
+        _allowance.Asked.Should().Be(1, "only the owner's own message asked for an allowance");
+    }
+
+    [Fact]
+    public async Task StreamResponseAsync_CountsAgainstTheUsersOwnAllowance()
+    {
+        _allowance.Allowance = new DailyAllowance(3, null);
+
+        await StartConversationAsync("Hello", UserId);
+
+        _allowance.AskedFor.Should().Be(UserId);
+        _quota.LastLimit.Should().Be(3);
     }
 
     [Fact]
@@ -576,16 +591,29 @@ public class ChatServiceTests
 
     private sealed class FakeQuota : IDailyMessageQuota
     {
-        public const int LimitValue = 7;
-
         public bool Allow { get; set; } = true;
         public int Consumed { get; private set; }
-        public int Limit => LimitValue;
+        public int? LastLimit { get; private set; }
 
-        public Task<bool> TryConsumeAsync(Guid userId, CancellationToken ct = default)
+        public Task<bool> TryConsumeAsync(Guid userId, int limit, CancellationToken ct = default)
         {
             Consumed++;
+            LastLimit = limit;
             return Task.FromResult(Allow);
+        }
+    }
+
+    private sealed class FakeAllowance : IDailyMessageAllowance
+    {
+        public DailyAllowance Allowance { get; set; } = new(7, 100);
+        public int Asked { get; private set; }
+        public Guid? AskedFor { get; private set; }
+
+        public Task<DailyAllowance> GetAsync(Guid userId, CancellationToken ct = default)
+        {
+            Asked++;
+            AskedFor = userId;
+            return Task.FromResult(Allowance);
         }
     }
 
