@@ -162,7 +162,7 @@ Dockerfile                            # Production image: built UI + API on one 
 - [Docker](https://www.docker.com/) (for MongoDB)
 - [.NET 8 SDK](https://dotnet.microsoft.com/download)
 - [Node.js 20+](https://nodejs.org/)
-- [Ollama](https://ollama.com/) with a pulled model (default: `gemma3:4b` ≈ 3 GB — use `gemma3:2b` ≈ 1.5 GB for lighter setup)
+- [Ollama](https://ollama.com/) with a pulled model (default: `gemma3:4b`, about 3 GB). For a lighter setup, pull `gemma3:1b` (about 0.8 GB) and change both `gemma3:4b` entries in `backend/src/Chat.Api/appsettings.Development.json` to it
 
 ### Happy path (chat works, no OAuth or billing setup needed)
 
