@@ -12,6 +12,7 @@ traded away, and where the up-front design turned out to be wrong.
 decisions/
   0001-revocation-follows-user-intent.md   Revoke a credential family on user intent, not on circumstance
   0002-stream-chat-replies-over-sse.md     Why replies stream as server-sent events, not SignalR
+  0003-sync-billing-from-stripe.md         Why each Stripe event re-reads the subscription
 
 trade-offs/
   single-vs-multiple-bounded-contexts.md   When to split a domain into separate contexts,
