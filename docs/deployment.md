@@ -144,6 +144,9 @@ twice or out of order. If the free instance is asleep, Stripe retries the event 
 
 - The free instance sleeps after 15 minutes without traffic. The first request after that waits
   about a minute.
+- When changing environment variables or Secret Files, choose **Save only**, then run Deploy.
+  **Save and deploy** restarts the image set when the service was created in step 3, not the
+  last one deployed, so the live app goes back to that first commit or fails to start.
 - The image is the one `docker compose --profile app up --build` runs locally, so a problem in the
   image shows up on a laptop first.
 - Groq's free tier allows about 8,000 tokens a minute and 200,000 a day for `gpt-oss-120b`, shared
