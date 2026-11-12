@@ -12,7 +12,7 @@ Stripe, 800+ automated tests, and a live deployment shipped through CI/CD.
 with `gpt-oss-120b` on Groq. It runs on Render's free tier, so the first visit after a quiet
 spell can take about a minute to wake up.
 
-![ChatApp: saved conversations beside a streamed reply](docs/images/chat.png)
+![A question typed into ChatApp and its reply streaming in word by word](docs/images/streaming.gif)
 
 ---
 
@@ -156,6 +156,8 @@ On the [live demo](https://chatapp-2uzj.onrender.com):
    can send 100 messages a day.
 4. **Cancel subscription** keeps Pro until the end of the month you paid for, and shows the date
    it ends.
+
+![Upgrading to Pro: Manage Plan, Stripe's test checkout, and back on Pro](docs/images/upgrade.gif)
 
 ### Known limitations
 
