@@ -1,7 +1,7 @@
 # ChatApp
 
 **A production-shaped AI chat platform:** streamed LLM replies, plan-based billing through
-Stripe, 800+ automated tests, and a live deployment shipped through CI/CD.
+Stripe, 780+ automated tests, and a live deployment shipped through CI/CD.
 
 [![CI](https://github.com/asifarshadullah/chatapp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/asifarshadullah/chatapp/actions/workflows/ci.yml)
 ![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)
